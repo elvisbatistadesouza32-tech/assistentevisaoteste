@@ -305,6 +305,7 @@
       const dados = await response.json().catch(() => ({}));
       const seg = ((Date.now() - t0) / 1000).toFixed(1);
       logDiag(`← Servidor respondeu em ${seg}s com status ${response.status}${dados.modelo ? " (modelo " + dados.modelo + ")" : ""}`);
+      if (dados.tentados && dados.tentados.length) logDiag(`   Tentativas no servidor: ${dados.tentados.join(" | ")}`);
       if (!response.ok) {
         throw new Error(dados.erro || `Erro ${response.status} no servidor do app`);
       }
@@ -330,7 +331,7 @@
       appState.isProcessingFrame = true;
       // Tempo limite de 20 s para o IDENTIFICAR (antes ficava esperando sem fim)
       const controleIdentificar = new AbortController();
-      const limiteIdentificar = setTimeout(() => controleIdentificar.abort(), 20000);
+      const limiteIdentificar = setTimeout(() => controleIdentificar.abort(), 30000);
       speak("Analisando");
       btnIdentificar.disabled = true;
       btnIdentificar.textContent = "ANALISANDO...";
@@ -350,7 +351,7 @@
         respostaBox.textContent = rawText;
         speak(rawText);
       } catch (err) {
-        const msg = err.name === "AbortError" ? "Tempo esgotado (20s): a IA não respondeu." : err.message;
+        const msg = err.name === "AbortError" ? "Tempo esgotado (30s): a IA não respondeu." : err.message;
         logDiag(`Erro na IA: ${msg}`, true);
         respostaBox.textContent = "Não consegui identificar. Tente de novo.";
         speak("Não consegui identificar. Tente de novo.");
@@ -394,8 +395,8 @@
 
       const captureTime = Date.now();
       appState.abortController = new AbortController();
-      // 20 s de limite: o servidor pode tentar outros modelos se um estiver ocupado
-      const timeoutId = setTimeout(() => appState.abortController.abort(), 20000);
+      // 30 s de limite: o servidor pode tentar outros modelos se um estiver ocupado
+      const timeoutId = setTimeout(() => appState.abortController.abort(), 30000);
 
       try {
         const { base64, sizeKB } = captureImage(768, 0.8);
@@ -465,7 +466,7 @@ Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. N�
       } catch (err) {
         clearTimeout(timeoutId);
         if (err.name === "AbortError") {
-          logDiag("Tempo esgotado (20s)", true);
+          logDiag("Tempo esgotado (30s)", true);
         } else {
           stats.erros++;
           logDiag(`Erro no ciclo: ${err.message}`, true);
