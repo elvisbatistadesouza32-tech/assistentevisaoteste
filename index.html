@@ -336,12 +336,22 @@
           generationConfig
         };
 
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify(payload),
-          signal: signal
-        });
+        const t0 = Date.now();
+        logDiag(`→ Pedido ${tentativa + 1}: modelo ${modelo}, ${usarSemPensar ? "sem raciocínio" : "com raciocínio"}, chave ...${key.slice(-4)}`);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            body: JSON.stringify(payload),
+            signal: signal
+          });
+        } catch (e) {
+          const seg = ((Date.now() - t0) / 1000).toFixed(1);
+          if (e.name === "AbortError") throw e;
+          throw new Error(`Falha de conexão após ${seg}s (${e.message}). A requisição não chegou ao Google ou não voltou: verifique a internet ou troque Wi-Fi/dados móveis.`);
+        }
+        logDiag(`← Servidor respondeu em ${((Date.now() - t0) / 1000).toFixed(1)}s com status ${response.status}`);
 
         if (!response.ok) {
           const errText = await response.text();
@@ -380,6 +390,12 @@
 
     btnIdentificar.addEventListener("click", async () => {
       if (appState.narrando) return;
+      // Evita duas análises ao mesmo tempo (ex.: TESTAR 1 CICLO + IDENTIFICAR)
+      if (appState.isProcessingFrame) { logDiag("Aguarde: já existe uma análise em andamento."); return; }
+      appState.isProcessingFrame = true;
+      // Tempo limite de 20 s para o IDENTIFICAR (antes ficava esperando sem fim)
+      const controleIdentificar = new AbortController();
+      const limiteIdentificar = setTimeout(() => controleIdentificar.abort(), 20000);
       speak("Analisando");
       btnIdentificar.disabled = true;
       btnIdentificar.textContent = "ANALISANDO...";
@@ -392,17 +408,20 @@
         logDiag("Enviando para a IA...");
 
         const prompt = "Você ajuda uma pessoa cega. Diga, em português do Brasil e em no máximo 2 frases curtas, quais são os objetos principais que aparecem à frente e onde estão (à frente, à esquerda, à direita). Comece pelo objeto mais próximo. Não use as palavras imagem ou foto.";
-        const rawText = await callGeminiApi(prompt, base64, null);
+        const rawText = await callGeminiApi(prompt, base64, controleIdentificar.signal);
         const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
 
         logDiag(`Resposta recebida em ${elapsedSec}s: ${rawText}`);
         respostaBox.textContent = rawText;
         speak(rawText);
       } catch (err) {
-        logDiag(`Erro na IA: ${err.message}`, true);
+        const msg = err.name === "AbortError" ? "Tempo esgotado (20s): a IA não respondeu." : err.message;
+        logDiag(`Erro na IA: ${msg}`, true);
         respostaBox.textContent = "Não consegui identificar. Tente de novo.";
         speak("Não consegui identificar. Tente de novo.");
       } finally {
+        clearTimeout(limiteIdentificar);
+        appState.isProcessingFrame = false;
         btnIdentificar.disabled = false;
         btnIdentificar.textContent = "IDENTIFICAR OBJETO";
       }
@@ -440,7 +459,8 @@
 
       const captureTime = Date.now();
       appState.abortController = new AbortController();
-      const timeoutId = setTimeout(() => appState.abortController.abort(), 8000);
+      // 12 s de limite (8 s era pouco para a primeira conexão no celular)
+      const timeoutId = setTimeout(() => appState.abortController.abort(), 12000);
 
       try {
         const { base64, sizeKB } = captureImage(768, 0.8);
@@ -510,7 +530,7 @@ Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. N�
       } catch (err) {
         clearTimeout(timeoutId);
         if (err.name === "AbortError") {
-          logDiag("Tempo esgotado (8s)", true);
+          logDiag("Tempo esgotado (12s)", true);
         } else {
           stats.erros++;
           logDiag(`Erro no ciclo: ${err.message}`, true);
