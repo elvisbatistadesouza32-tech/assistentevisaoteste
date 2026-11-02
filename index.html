@@ -1,1113 +1,395 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Assistente de Visão - Etapa 4</title>
-  <!-- Tailwind CSS via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Fontes Inter e JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assistente de Visão</title>
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #09090b;
-      color: #ffffff;
-      touch-action: manipulation;
-    }
-    .font-mono-log {
-      font-family: 'JetBrains Mono', monospace;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #000; color: #fff; padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 100vh; }
+    #video-container { position: relative; width: 100%; height: 50vh; background-color: #111; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    .btn { width: 100%; padding: 16px; font-size: 18px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; text-align: center; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #btn-narrar { background-color: #00E676; color: #000; font-size: 20px; }
+    #btn-narrar.pausar { background-color: #FF1744; color: #FFF; }
+    #btn-identificar { background-color: #FFD400; color: #000; font-size: 20px; }
+    #resposta-box { background-color: #000; color: #fff; border: 2px solid #333; border-radius: 8px; padding: 16px; font-size: 24px; font-weight: bold; min-height: 100px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.3; }
+    #placar { background-color: #111; border: 1px solid #333; border-radius: 6px; padding: 10px; font-size: 13px; color: #FFD400; font-family: monospace; text-align: center; }
+    .controles-grupo { display: flex; flex-direction: column; gap: 8px; background-color: #111; padding: 10px; border-radius: 6px; border: 1px solid #222; }
+    .controle-item { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+    select, input[type="password"] { background-color: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 8px; font-size: 14px; width: 60%; }
+    input[type="password"] { width: 100%; }
+    details { background-color: #111; border: 1px solid #222; border-radius: 6px; padding: 8px; }
+    summary { font-weight: bold; cursor: pointer; font-size: 14px; color: #888; }
+    #diagnostico { background-color: #050505; border: 1px solid #222; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; color: #00FF66; height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .btn-secundario { background-color: #333; color: #fff; padding: 8px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 4px; }
+    canvas { display: none; }
   </style>
 </head>
-<body class="h-screen w-screen flex flex-col justify-between overflow-hidden">
+<body>
 
-  <!-- ==========================================
-       1. CABEÇALHO DA APLICAÇÃO
-       ========================================== -->
-  <header class="bg-slate-900 border-b border-slate-800 px-4 py-2 flex justify-between items-center z-10 shrink-0">
-    <h1 class="text-base font-extrabold text-amber-400 tracking-wide uppercase flex items-center gap-1.5">
-      Assistente de Visão <span class="text-xs font-normal text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded bg-amber-950/50">Etapa 4</span>
-    </h1>
-    <span id="cameraStatusBadge" class="text-xs bg-slate-800 text-slate-300 px-2 py-1 rounded-full font-medium flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Iniciando...
-    </span>
-  </header>
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
 
-  <!-- ==========================================
-       2. CONTEÚDO PRINCIPAL (LAYOUT MOBILE)
-       ========================================== -->
-  <main class="flex-1 flex flex-col justify-between p-3 gap-2.5 overflow-y-auto">
+  <button id="btn-narrar" class="btn">INICIAR NARRAÇÃO</button>
+  <button id="btn-identificar" class="btn">IDENTIFICAR OBJETO</button>
 
-    <!-- ÁREA DA CÂMERA (COM OVERLAY DE DETECÇÃO LOCAL) -->
-    <section class="relative flex-1 min-h-[35vh] max-h-[42vh] bg-black rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center">
-      <video 
-        id="webcamVideo" 
-        autoplay 
-        playsinline 
-        muted 
-        class="w-full h-full object-cover">
-      </video>
+  <div id="resposta-box">Aguardando análise...</div>
+  <div id="placar">Comparadas: 0 | Enviadas: 0 | Economia: 0% | Falas: 0 | Silêncios: 0 | Média: 0.0s</div>
 
-      <!-- Overlay visual com informações de Mudança e Brilho -->
-      <div class="absolute top-2 left-2 right-2 flex justify-between items-center bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-xs font-mono-log z-10">
-        <span id="overlayChange" class="text-cyan-400 font-bold">Mudança: 0.0%</span>
-        <span id="overlayBrightness" class="text-amber-300 font-bold">Brilho: --</span>
+  <div class="controles-grupo">
+    <div class="controle-item">
+      <label for="select-voz">Voz:</label>
+      <select id="select-voz"><option value="">Carregando vozes...</option></select>
+    </div>
+    <button id="btn-testar-voz" class="btn-secundario">TESTAR VOZ</button>
+  </div>
+
+  <details>
+    <summary>⚙️ Ajustes & Opções</summary>
+    <div class="controles-grupo" style="margin-top: 8px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label for="input-key" style="font-size: 12px; color: #aaa;">Chave da API do Google Gemini:</label>
+        <input type="password" id="input-key" placeholder="Cole sua chave AIzaSy... aqui">
       </div>
-
-      <div class="absolute inset-0 border-2 border-dashed border-white/20 rounded-2xl pointer-events-none"></div>
-    </section>
-
-    <!-- CONTROLES PRINCIPAIS DE NARRAÇÃO -->
-    <section class="shrink-0 flex gap-2">
-      <!-- Botão Iniciar/Pausar Narração -->
-      <button 
-        id="btnToggleNarration" 
-        onclick="toggleNarration()"
-        class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-lg py-3.5 px-4 rounded-2xl shadow-lg active:scale-98 transition duration-150 border-2 border-emerald-300 flex items-center justify-center gap-2">
-        <span>▶</span> INICIAR NARRAÇÃO
-      </button>
-    </section>
-
-    <!-- BOTÃO MANUAL DE IDENTIFICAÇÃO -->
-    <section class="shrink-0">
-      <button 
-        id="btnIdentify" 
-        onclick="identifyObjectManual()"
-        class="w-full bg-[#FFD400] text-black font-extrabold text-lg py-3.5 px-6 rounded-2xl shadow-xl active:scale-98 transition duration-150 border-2 border-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-        IDENTIFICAR OBJETO
-      </button>
-    </section>
-
-    <!-- CAIXA DE RESPOSTA DA IA (Fonte 24px) -->
-    <section class="shrink-0">
-      <div class="bg-black text-white p-3.5 rounded-2xl border-2 border-slate-800 min-h-[75px] flex items-center justify-start shadow-inner">
-        <p id="aiResponseText" class="text-[22px] sm:text-[24px] font-semibold leading-tight tracking-wide text-slate-100">
-          Iniciando sistema...
-        </p>
-      </div>
-    </section>
-
-    <!-- PAINEL DE AJUSTES E CONFIGURAÇÕES (LOCALSTORAGE) -->
-    <section class="shrink-0 bg-slate-900/90 border border-slate-800 p-2.5 rounded-2xl flex flex-col gap-2">
-      <div class="flex items-center gap-2">
-        <label for="voiceSelect" class="text-xs font-bold text-amber-400 uppercase tracking-wider shrink-0">Voz:</label>
-        <select 
-          id="voiceSelect" 
-          onchange="onVoiceSelectionChange()" 
-          class="flex-1 bg-slate-950 text-slate-100 text-xs border border-slate-700 rounded-xl px-2 py-1.5 focus:outline-none focus:border-amber-400 truncate">
-          <option value="">Carregando vozes...</option>
+      <div class="controle-item">
+        <label for="select-comparacao">Comparação:</label>
+        <select id="select-comparacao">
+          <option value="500">0.5s</option>
+          <option value="1000" selected>1.0s</option>
+          <option value="2000">2.0s</option>
         </select>
-        <button 
-          id="btnTestVoice" 
-          onclick="testVoice()"
-          class="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs py-1.5 px-2.5 rounded-xl border border-slate-700 active:scale-98 transition shrink-0">
-          🔊 TESTAR
-        </button>
       </div>
-
-      <!-- Ajustes de Comparação Local -->
-      <div class="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/80">
-        <!-- Intervalo Comparação -->
-        <div class="flex flex-col gap-0.5">
-          <label for="compIntervalSelect" class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Intervalo</label>
-          <select 
-            id="compIntervalSelect" 
-            onchange="onConfigChange()"
-            class="bg-slate-950 text-slate-100 text-xs font-bold border border-slate-700 rounded-lg p-1 text-center focus:outline-none focus:border-amber-400">
-            <option value="0.5">0.5 seg</option>
-            <option value="1" selected>1.0 seg</option>
-            <option value="2">2.0 seg</option>
-          </select>
-        </div>
-
-        <!-- Sensibilidade de Mudança -->
-        <div class="flex flex-col gap-0.5">
-          <label for="sensitivitySelect" class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Sensibilidade</label>
-          <select 
-            id="sensitivitySelect" 
-            onchange="onConfigChange()"
-            class="bg-slate-950 text-slate-100 text-xs font-bold border border-slate-700 rounded-lg p-1 text-center focus:outline-none focus:border-amber-400">
-            <option value="8">8% (Alta)</option>
-            <option value="15" selected>15% (Méd)</option>
-            <option value="25">25% (Baixa)</option>
-            <option value="35">35% (Mín)</option>
-          </select>
-        </div>
-
-        <!-- Envio de Segurança -->
-        <div class="flex flex-col gap-0.5">
-          <label for="safetySelect" class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Segurança</label>
-          <select 
-            id="safetySelect" 
-            onchange="onConfigChange()"
-            class="bg-slate-950 text-slate-100 text-xs font-bold border border-slate-700 rounded-lg p-1 text-center focus:outline-none focus:border-amber-400">
-            <option value="10">10 seg</option>
-            <option value="15" selected>15 seg</option>
-            <option value="30">30 seg</option>
-          </select>
-        </div>
+      <div class="controle-item">
+        <label for="select-sensibilidade">Sensibilidade:</label>
+        <select id="select-sensibilidade">
+          <option value="8">8% (Muito sensível)</option>
+          <option value="15" selected>15% (Padrão)</option>
+          <option value="25">25% (Pouco sensível)</option>
+          <option value="35">35% (Rígido)</option>
+        </select>
       </div>
-    </section>
-
-    <!-- PLACAR COMPLETO EM TEMPO REAL -->
-    <section class="shrink-0 bg-slate-950 border border-slate-800/80 rounded-xl px-3 py-2 text-[10px] sm:text-[11px] font-mono-log text-slate-300 flex flex-col gap-1 overflow-x-auto">
-      <div class="flex justify-between items-center whitespace-nowrap gap-2 border-b border-slate-800/60 pb-1">
-        <span>Comparadas: <strong id="scoreComparadas" class="text-cyan-400">0</strong></span>
-        <span>Enviadas: <strong id="scoreEnviadasTotal" class="text-amber-400">0</strong> (<span id="scoreMudanca" class="text-emerald-400">M:0</span>, <span id="scoreSeguranca" class="text-indigo-400">S:0</span>, <span id="scoreInicio" class="text-purple-400">I:0</span>)</span>
-        <span>Economia: <strong id="scoreEconomia" class="text-green-400">0%</strong></span>
+      <div class="controle-item">
+        <label for="select-seguranca">Envio Segurança:</label>
+        <select id="select-seguranca">
+          <option value="10000">10s</option>
+          <option value="15000" selected>15s</option>
+          <option value="30000">30s</option>
+        </select>
       </div>
-      <div class="flex justify-between items-center whitespace-nowrap gap-2 pt-0.5">
-        <span>Falas: <strong id="scoreFalas" class="text-emerald-400">0</strong> (<span id="scoreAlertas" class="text-red-400">A:0</span>)</span>
-        <span>Silêncios: <strong id="scoreSilencios" class="text-slate-400">0</strong></span>
-        <span>Tempo Médio: <strong id="scoreAvgTime" class="text-cyan-400">0.0s</strong></span>
-      </div>
-    </section>
-
-    <!-- BOTÕES DE AÇÃO DO DIAGNÓSTICO E CÂMERA -->
-    <section class="shrink-0 flex gap-2">
-      <button 
-        id="btnRetryCamera" 
-        onclick="initCamera()"
-        class="flex-1 bg-amber-900/80 hover:bg-amber-800 text-amber-200 font-bold text-xs py-2 px-2 rounded-xl border border-amber-700 active:scale-98 transition text-center truncate">
-        📷 TENTAR CÂMERA DE NOVO
-      </button>
-      <button 
-        id="btnTestSingleCycle" 
-        onclick="runSingleTestCycle()"
-        class="flex-1 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 font-bold text-xs py-2 px-2 rounded-xl border border-indigo-700 active:scale-98 transition text-center truncate">
-        🧪 TESTAR 1 CICLO
-      </button>
-      <button 
-        id="btnCopyDiagnostics" 
-        onclick="copyDiagnostics()"
-        class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs py-2 px-2 rounded-xl border border-slate-700 active:scale-98 transition text-center truncate">
-        📋 COPIAR DIAGNÓSTICO
-      </button>
-    </section>
-
-  </main>
-
-  <!-- ==========================================
-       3. ÁREA DE DIAGNÓSTICO (MÁXIMO 30 LINHAS)
-       ========================================== -->
-  <footer class="shrink-0 bg-slate-950 border-t border-slate-800 p-2.5">
-    <div class="flex justify-between items-center mb-1">
-      <span class="text-[11px] uppercase tracking-wider font-bold text-slate-400">Diagnóstico do Sistema</span>
-      <button onclick="clearDiagnostics()" class="text-[10px] text-slate-500 hover:text-slate-300 underline">Limpar Log</button>
+      <button id="btn-testar-ciclo" class="btn-secundario">TESTAR 1 CICLO</button>
+      <button id="btn-retry-camera" class="btn-secundario">📷 TENTAR CÂMERA DE NOVO</button>
     </div>
-    <div id="diagnosticLog" class="h-28 overflow-y-auto font-mono-log text-[11px] bg-slate-900/90 text-green-400 p-2 rounded-xl border border-slate-800/80 space-y-0.5">
-      <!-- Linhas de log inseridas dinamicamente -->
-    </div>
-  </footer>
+  </details>
 
-  <!-- Elemento auxiliar para cópia em área de transferência -->
-  <textarea id="clipboardHelper" class="sr-only" aria-hidden="true"></textarea>
+  <div id="diagnostico"></div>
+  <button id="btn-copiar-diag" class="btn-secundario">📋 COPIAR DIAGNÓSTICO</button>
 
-  <!-- ==========================================
-       4. LÓGICA JAVASCRIPT PRINCIPAL
-       ========================================== -->
+  <canvas id="canvas-capture"></canvas>
+  <canvas id="canvas-thumb" width="32" height="24"></canvas>
+
   <script>
-    /* ==========================================
-       ESTADO CENTRALIZADO DA APLICAÇÃO (ETAPA 4)
-       ========================================== */
+    const MODEL_NAME = "gemini-flash-latest";
     const appState = {
-      isNarrating: false,
-      isProcessingFrame: false,
-      isSpeakingInternal: false,
-      
-      // Controle da Detecção Local (32x24 Grayscale)
-      refImageData32x24: null,      // Uint8ClampedArray(768) da última foto enviada à IA
-      consecutiveChangeCount: 0,    // Filtro de estabilidade antitremida (precisa de >= 2)
-      darkStartTime: null,          // Timestamp de quando o brilho caiu abaixo de 20
-      hasSpokenDarkWarning: false,  // Se já falou "Câmera tapada"
-      lastAiSendTime: 0,            // Timestamp do último envio efetivo à IA
-      isFirstSend: true,            // Flag para envio no início da narração
-      
-      localLoopTimerId: null,
-      abortController: null,
-      wakeLockSentinel: null,
-
-      stats: { 
-        comparadas: 0,
-        enviadasTotal: 0,
-        enviadasMudanca: 0,
-        enviadasSeguranca: 0,
-        enviadasInicio: 0,
-        falas: 0,
-        alertas: 0,
-        silencios: 0,
-        descartadas: 0,
-        erros: 0
-      },
-
-      totalResponseTimeSec: 0,
-      responseCount: 0,
-      last3Phrases: [],
-      lastSpokenTimestamp: Date.now(),
-      consecutiveErrors: 0,
-      wasPausedByVisibility: false,
-      rateLimitMultiplier: 1,
-      rateLimitResetTimer: null,
-      hasAnnouncedRateLimit: false
+      narrando: false, isProcessingFrame: false, isSpeakingInternal: false,
+      lastTalkTime: Date.now(), lastSentTime: 0, lastConsecutiveDiff: 0, darkStartTime: 0, darkWarned: false,
+      abortController: null, currentStream: null, wakeLock: null,
+      selectedVoice: null, chosenPitch: 1.0, isMasculineVoice: false,
+      lastSentGrayThumb: null, responseTimes: []
     };
+    const stats = { comparadas: 0, enviadas: 0, porMudanca: 0, porSeguranca: 0, falas: 0, alertas: 0, silencios: 0, erros: 0 };
 
-    // Referências dos Elementos DOM
-    const video = document.getElementById('webcamVideo');
-    const btnIdentify = document.getElementById('btnIdentify');
-    const btnToggleNarration = document.getElementById('btnToggleNarration');
-    const aiResponseText = document.getElementById('aiResponseText');
-    const diagnosticLog = document.getElementById('diagnosticLog');
-    const cameraStatusBadge = document.getElementById('cameraStatusBadge');
+    const video = document.getElementById("webcam");
+    const btnNarrar = document.getElementById("btn-narrar");
+    const btnIdentificar = document.getElementById("btn-identificar");
+    const respostaBox = document.getElementById("resposta-box");
+    const placar = document.getElementById("placar");
+    const selectVoz = document.getElementById("select-voz");
+    const btnTestarVoz = document.getElementById("btn-testar-voz");
+    const inputKey = document.getElementById("input-key");
+    const selectComparacao = document.getElementById("select-comparacao");
+    const selectSensibilidade = document.getElementById("select-sensibilidade");
+    const selectSeguranca = document.getElementById("select-seguranca");
+    const btnTestarCiclo = document.getElementById("btn-testar-ciclo");
+    const btnRetryCamera = document.getElementById("btn-retry-camera");
+    const btnCopiarDiag = document.getElementById("btn-copiar-diag");
+    const diagBox = document.getElementById("diagnostico");
+    const canvasCap = document.getElementById("canvas-capture");
+    const canvasThumb = document.getElementById("canvas-thumb");
 
-    const overlayChange = document.getElementById('overlayChange');
-    const overlayBrightness = document.getElementById('overlayBrightness');
-
-    const voiceSelect = document.getElementById('voiceSelect');
-    const compIntervalSelect = document.getElementById('compIntervalSelect');
-    const sensitivitySelect = document.getElementById('sensitivitySelect');
-    const safetySelect = document.getElementById('safetySelect');
-
-    const scoreComparadas = document.getElementById('scoreComparadas');
-    const scoreEnviadasTotal = document.getElementById('scoreEnviadasTotal');
-    const scoreMudanca = document.getElementById('scoreMudanca');
-    const scoreSeguranca = document.getElementById('scoreSeguranca');
-    const scoreInicio = document.getElementById('scoreInicio');
-    const scoreEconomia = document.getElementById('scoreEconomia');
-
-    const scoreFalas = document.getElementById('scoreFalas');
-    const scoreAlertas = document.getElementById('scoreAlertas');
-    const scoreSilencios = document.getElementById('scoreSilencios');
-    const scoreAvgTime = document.getElementById('scoreAvgTime');
-
-    // Chaves de localStorage
-    const STORAGE_KEY_VOICE = 'assistente_visao_voz';
-    const STORAGE_KEY_COMP_INTERVAL = 'assistente_visao_comp_interval';
-    const STORAGE_KEY_SENSITIVITY = 'assistente_visao_sensibilidade';
-    const STORAGE_KEY_SAFETY = 'assistente_visao_seguranca';
-
-    const MALE_NAMES = ["daniel", "antonio", "felipe", "fabio", "humberto", "julio", "donato", "male", "masculino"];
-
-    /* ==========================================
-       MONITORAMENTO GLOBAL DE ERROS
-       ========================================== */
-    window.addEventListener('error', (event) => {
-      logDiagnostic(`Erro Global: ${event.message} (${event.filename}:${event.lineno})`, true);
-    });
-
-    window.addEventListener('unhandledrejection', (event) => {
-      const reason = event.reason ? (event.reason.message || event.reason) : 'Desconhecida';
-      logDiagnostic(`Promessa Não Tratada: ${reason}`, true);
-    });
-
-    /* ==========================================
-       SISTEMA DE LOG E DIAGNÓSTICO
-       ========================================== */
-    function logDiagnostic(message, isError = false) {
+    function logDiag(msg, isError = false) {
       const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      
-      const logEntry = document.createElement('div');
-      logEntry.className = isError ? 'text-red-400 font-semibold' : 'text-green-400';
-      logEntry.textContent = `[${timeStr}] ${message}`;
-
-      diagnosticLog.appendChild(logEntry);
-
-      while (diagnosticLog.children.length > 30) {
-        diagnosticLog.removeChild(diagnosticLog.firstChild);
-      }
-      diagnosticLog.scrollTop = diagnosticLog.scrollHeight;
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+      const line = `[${timeStr}] ${msg}\n`;
+      if (isError) diagBox.innerHTML += `<span style="color: #FF5252;">${line}</span>`;
+      else diagBox.innerHTML += line;
+      const lines = diagBox.innerHTML.split('\n');
+      if (lines.length > 35) diagBox.innerHTML = lines.slice(lines.length - 35).join('\n');
+      diagBox.scrollTop = diagBox.scrollHeight;
     }
 
-    function clearDiagnostics() {
-      diagnosticLog.innerHTML = '';
-      logDiagnostic("Diagnóstico limpo pelo usuário.");
+    window.onerror = (msg, url, line) => logDiag(`ERRO GLOBAL: ${msg} (Linha ${line})`, true);
+    window.onunhandledrejection = (e) => logDiag(`PROMESSA REJEITADA: ${e.reason}`, true);
+
+    function getApiKey() {
+      try { return localStorage.getItem("gemini_api_key") || inputKey.value.trim(); }
+      catch(e) { return inputKey.value.trim(); }
     }
 
-    function copyDiagnostics() {
-      const textToCopy = Array.from(diagnosticLog.children)
-        .map(div => div.textContent)
-        .join('\n');
+    inputKey.addEventListener("change", () => {
+      try { localStorage.setItem("gemini_api_key", inputKey.value.trim()); logDiag("Chave da API salva nos Ajustes."); } catch(e){}
+    });
 
-      if (!textToCopy) {
-        logDiagnostic("Nada para copiar no Diagnóstico.");
-        return;
-      }
+    try { const savedKey = localStorage.getItem("gemini_api_key"); if(savedKey) inputKey.value = savedKey; } catch(e){}
 
-      const helper = document.getElementById('clipboardHelper');
-      helper.value = textToCopy;
-      helper.select();
-      
-      try {
-        const success = document.execCommand('copy');
-        if (success) {
-          logDiagnostic("Diagnóstico copiado para a área de transferência!");
-        } else {
-          throw new Error("Comando de cópia falhou");
-        }
-      } catch (err) {
-        logDiagnostic(`Erro ao copiar: ${err.message || err}`, true);
-      }
+    function speak(text, onEndCallback = null) {
+      if (!("speechSynthesis" in window)) { logDiag("Navegador não suporta voz"); return; }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "pt-BR"; utterance.rate = 1.0;
+      utterance.volume = 1.0; utterance.pitch = appState.chosenPitch;
+      if (appState.selectedVoice) utterance.voice = appState.selectedVoice;
+
+      utterance.onstart = () => { appState.isSpeakingInternal = true; logDiag(`Falando: "${text.substring(0, 40)}..."`); };
+      utterance.onend = () => { appState.isSpeakingInternal = false; logDiag("Fala concluída"); if (onEndCallback) onEndCallback(); };
+      utterance.onerror = (e) => { appState.isSpeakingInternal = false; logDiag(`Erro na fala: ${e.error}`, true); if (onEndCallback) onEndCallback(); };
+
+      window.speechSynthesis.speak(utterance);
     }
 
-    function recordAiResponseTime(elapsedSec) {
-      appState.totalResponseTimeSec += elapsedSec;
-      appState.responseCount++;
-      updateScoreboard();
-    }
-
-    function updateScoreboard() {
-      scoreComparadas.textContent = appState.stats.comparadas;
-      scoreEnviadasTotal.textContent = appState.stats.enviadasTotal;
-      scoreMudanca.textContent = `M:${appState.stats.enviadasMudanca}`;
-      scoreSeguranca.textContent = `S:${appState.stats.enviadasSeguranca}`;
-      scoreInicio.textContent = `I:${appState.stats.enviadasInicio}`;
-
-      // Cálculo de Economia
-      let economia = 0;
-      if (appState.stats.comparadas > 0) {
-        economia = Math.max(0, Math.min(100, 100 - (appState.stats.enviadasTotal / appState.stats.comparadas * 100)));
-      }
-      scoreEconomia.textContent = `${economia.toFixed(1)}%`;
-
-      scoreFalas.textContent = appState.stats.falas;
-      scoreAlertas.textContent = `A:${appState.stats.alertas}`;
-      scoreSilencios.textContent = appState.stats.silencios;
-      
-      if (appState.responseCount > 0) {
-        const avg = (appState.totalResponseTimeSec / appState.responseCount).toFixed(1);
-        scoreAvgTime.textContent = `${avg}s`;
-      } else {
-        scoreAvgTime.textContent = "0.0s";
-      }
-    }
-
-    function removeAccents(str) {
-      return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    }
-
-    /* ==========================================
-       ABERTURA E TENTATIVAS DE CÂMERA
-       ========================================== */
-    function updateCameraBadge(active, text) {
-      if (active) {
-        cameraStatusBadge.className = "text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-1 rounded-full font-medium flex items-center gap-1.5";
-        cameraStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> ${text}`;
-      } else {
-        cameraStatusBadge.className = "text-xs bg-red-950 text-red-400 border border-red-800 px-2 py-1 rounded-full font-medium flex items-center gap-1.5";
-        cameraStatusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500"></span> ${text}`;
-      }
-    }
-
-    async function initCamera() {
-      const isSecure = window.isSecureContext;
-      const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-      const inIframe = window.self !== window.top;
-      const userAgent = navigator.userAgent;
-
-      logDiagnostic(`Contexto seguro: ${isSecure}`);
-      logDiagnostic(`getUserMedia disponível: ${hasGetUserMedia ? 'sim' : 'não'}`);
-      logDiagnostic(`Dentro de moldura (iframe): ${inIframe}`);
-      logDiagnostic(`Navegador: ${userAgent}`);
-
-      if (!hasGetUserMedia) {
-        const msg = "Este navegador não permite câmera aqui. Abra o link direto no Chrome ou no Safari.";
-        logDiagnostic("getUserMedia indisponível", true);
-        aiResponseText.innerText = msg;
-        updateCameraBadge(false, "Sem Câmera");
-        return;
-      }
-
-      if (video.srcObject) {
-        try {
-          const tracks = video.srcObject.getTracks();
-          tracks.forEach(track => track.stop());
-        } catch (e) {}
-        video.srcObject = null;
-      }
-
-      const attempts = [
-        { id: 'a', label: 'Tentativa a (Traseira HD)', constraints: { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false } },
-        { id: 'b', label: 'Tentativa b (Traseira padrão)', constraints: { video: { facingMode: { ideal: "environment" } }, audio: false } },
-        { id: 'c', label: 'Tentativa c (Qualquer câmera)', constraints: { video: true, audio: false } }
-      ];
-
-      let stream = null;
-      let successfulAttemptLabel = "";
-      let lastError = null;
-
-      for (const attempt of attempts) {
-        try {
-          logDiagnostic(`Solicitando câmera: ${attempt.label}...`);
-          stream = await navigator.mediaDevices.getUserMedia(attempt.constraints);
-          successfulAttemptLabel = attempt.label;
-          break;
-        } catch (err) {
-          lastError = err;
-          logDiagnostic(`Erro na ${attempt.label}: name="${err.name}", message="${err.message}"`, true);
-          
-          if (err.name === "NotAllowedError" || (err.message && err.message.toLowerCase().includes("permissions policy"))) {
-            break;
-          }
-        }
-      }
-
-      if (stream) {
-        video.srcObject = stream;
-        try {
-          await video.play();
-        } catch (e) {}
-
-        video.onloadedmetadata = () => {
-          logDiagnostic(`Câmera aberta com sucesso (${successfulAttemptLabel}): ${video.videoWidth}x${video.videoHeight}`);
-          updateCameraBadge(true, "Câmera Ativa");
-          aiResponseText.innerText = "Câmera ativada. Toque em 'IDENTIFICAR OBJETO' ou 'INICIAR NARRAÇÃO'.";
-        };
-      } else {
-        handleCameraFailure(lastError);
-      }
-    }
-
-    function handleCameraFailure(err) {
-      const errName = err ? (err.name || "Erro") : "ErroDesconhecido";
-      const errMsg = err ? (err.message || "") : "Não foi possível acessar nenhuma câmera.";
-      
-      logDiagnostic(`Erro na câmera completo: name="${errName}", message="${errMsg}"`, true);
-      updateCameraBadge(false, "Erro na Câmera");
-
-      let explanation = "Não foi possível abrir a câmera.";
-      const errMsgLower = errMsg.toLowerCase();
-
-      if (errMsgLower.includes("permissions policy")) {
-        explanation = "A câmera está bloqueada nesta pré-visualização. Abra o app publicado direto no navegador.";
-      } else if (errName === "NotAllowedError") {
-        explanation = "Permissão da câmera negada. Libere a câmera nas configurações do navegador.";
-      } else if (errName === "NotReadableError") {
-        explanation = "A câmera está sendo usada por outro aplicativo. Feche os outros apps e tente de novo.";
-      } else if (errName === "OverconstrainedError") {
-        explanation = "Configuração de câmera não suportada; tentando outra.";
-      } else if (errName === "NotFoundError") {
-        explanation = "Nenhuma câmera encontrada.";
-      }
-
-      aiResponseText.innerText = explanation;
-    }
-
-    function captureCanvasBase64() {
-      if (!video.videoWidth || !video.videoHeight) {
-        throw new Error("Vídeo da câmera indisponível ou não inicializado");
-      }
-      const canvas = document.createElement('canvas');
-      let width = video.videoWidth;
-      let height = video.videoHeight;
-      const maxAllowedWidth = 768;
-
-      if (width > maxAllowedWidth) {
-        height = Math.round((height * maxAllowedWidth) / width);
-        width = maxAllowedWidth;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, width, height);
-
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      return dataUrl.split(',')[1];
-    }
-
-    /* ==========================================
-       COMPARAÇÃO LOCAL NO CELULAR (32x24 GRAYSCALE)
-       ========================================== */
-    function getGrayscale32x24() {
-      if (!video.videoWidth || !video.videoHeight) return null;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 32;
-      canvas.height = 24;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, 32, 24);
-
-      const imgData = ctx.getImageData(0, 0, 32, 24).data;
-      const gray = new Uint8ClampedArray(32 * 24);
-      let totalBrightness = 0;
-
-      for (let i = 0; i < gray.length; i++) {
-        const r = imgData[i * 4];
-        const g = imgData[i * 4 + 1];
-        const b = imgData[i * 4 + 2];
-        // Conversão Padrão NTSC/PAL (0.299R + 0.587G + 0.114B)
-        const gVal = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-        gray[i] = gVal;
-        totalBrightness += gVal;
-      }
-
-      const avgBrightness = totalBrightness / gray.length;
-      return { gray, avgBrightness };
-    }
-
-    function calcDiffPercentage(currGray, refGray) {
-      if (!currGray || !refGray || currGray.length !== refGray.length) return 0;
-      let diffSum = 0;
-      for (let i = 0; i < currGray.length; i++) {
-        diffSum += Math.abs(currGray[i] - refGray[i]);
-      }
-      // Diferença máxima possível: 768 pixels * 255 = 195.840
-      const maxDiff = currGray.length * 255;
-      return (diffSum / maxDiff) * 100;
-    }
-
-    /* ==========================================
-       WAKE LOCK (MANTER TELA ACESA)
-       ========================================== */
-    async function requestWakeLock() {
-      if ('wakeLock' in navigator) {
-        try {
-          appState.wakeLockSentinel = await navigator.wakeLock.request('screen');
-          logDiagnostic("Wake Lock: ativa");
-          appState.wakeLockSentinel.addEventListener('release', () => {
-            logDiagnostic("Wake Lock: liberada");
-          });
-        } catch (err) {
-          logDiagnostic(`Wake Lock erro: ${err.message || err}`, true);
-        }
-      } else {
-        logDiagnostic("Wake Lock: não suportada");
-      }
-    }
-
-    function releaseWakeLock() {
-      if (appState.wakeLockSentinel) {
-        appState.wakeLockSentinel.release().catch(() => {});
-        appState.wakeLockSentinel = null;
-      }
-    }
-
-    /* ==========================================
-       VOZ E SÍNTESE DE FALA
-       ========================================== */
-    function getSelectedVoiceConfig() {
-      if (!('speechSynthesis' in window)) return null;
-
-      const voices = window.speechSynthesis.getVoices();
-      if (!voices || voices.length === 0) return null;
-
-      let chosenVoice = null;
-      let pitch = 0.8;
-      let mode = "";
-
-      let savedVoiceURI = null;
-      try { savedVoiceURI = localStorage.getItem(STORAGE_KEY_VOICE); } catch (e) {}
-
-      if (savedVoiceURI) {
-        chosenVoice = voices.find(v => v.voiceURI === savedVoiceURI || v.name === savedVoiceURI);
-        if (chosenVoice) {
-          const nameClean = removeAccents(chosenVoice.name.toLowerCase());
-          const isMale = MALE_NAMES.some(m => nameClean.includes(m));
-          pitch = isMale ? 1.0 : 0.8;
-          mode = "manual";
-        }
-      }
-
-      if (!chosenVoice) {
-        chosenVoice = voices.find(v => {
-          const isPt = v.lang.toLowerCase().startsWith('pt');
-          const nameClean = removeAccents(v.name.toLowerCase());
-          return isPt && MALE_NAMES.some(m => nameClean.includes(m));
-        });
-        if (chosenVoice) {
-          pitch = 1.0;
-          mode = "masculina automática";
-        }
-      }
-
-      if (!chosenVoice) {
-        chosenVoice = voices.find(v => v.lang.toLowerCase().startsWith('pt'));
-        if (chosenVoice) {
-          pitch = 0.8;
-          mode = "português com tom grave";
-        }
-      }
-
-      if (!chosenVoice) {
-        chosenVoice = voices[0] || null;
-        pitch = 0.8;
-        mode = "padrão do sistema";
-      }
-
-      return { voice: chosenVoice, pitch, mode };
-    }
-
-    function loadVoicesUI() {
-      if (!('speechSynthesis' in window)) {
-        logDiagnostic("Este navegador não suporta voz", true);
-        return;
-      }
-
+    function loadVoices() {
+      if (!("speechSynthesis" in window)) return;
       const voices = window.speechSynthesis.getVoices();
       if (!voices || voices.length === 0) return;
+      const ptVoices = voices.filter(v => v.lang.includes("pt") || v.lang.includes("PT"));
+      logDiag(`Vozes disponíveis: ${voices.length} no total, ${ptVoices.length} em PT`);
+      selectVoz.innerHTML = "";
+      const sortedVoices = [...voices].sort((a,b) => (b.lang.includes("pt")?1:0) - (a.lang.includes("pt")?1:0));
 
-      const ptVoices = voices.filter(v => v.lang.toLowerCase().startsWith('pt'));
-      logDiagnostic(`Vozes disponíveis: ${voices.length} no total, ${ptVoices.length} em português`);
-
-      const sortedVoices = [...voices].sort((a, b) => {
-        const aPt = a.lang.toLowerCase().startsWith('pt');
-        const bPt = b.lang.toLowerCase().startsWith('pt');
-        if (aPt && !bPt) return -1;
-        if (!aPt && bPt) return 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      let savedVoiceURI = "";
-      try { savedVoiceURI = localStorage.getItem(STORAGE_KEY_VOICE) || ""; } catch (e) {}
-
-      voiceSelect.innerHTML = '';
       sortedVoices.forEach(v => {
-        const option = document.createElement('option');
-        option.value = v.voiceURI || v.name;
-        option.textContent = `${v.name} (${v.lang})`;
-        if (savedVoiceURI && (v.voiceURI === savedVoiceURI || v.name === savedVoiceURI)) {
-          option.selected = true;
-        }
-        voiceSelect.appendChild(option);
+        const opt = document.createElement("option");
+        opt.value = v.name; opt.textContent = `${v.name} (${v.lang})`;
+        selectVoz.appendChild(opt);
       });
 
-      const config = getSelectedVoiceConfig();
-      if (config && config.voice) {
-        logDiagnostic(`Voz escolhida: ${config.voice.name} (${config.voice.lang}), pitch ${config.pitch}, modo ${config.mode}`);
+      let chosen = null, mode = "";
+      try { const saved = localStorage.getItem("voz_selecionada"); if (saved) { chosen = voices.find(v => v.name === saved); if (chosen) mode = "manual"; } } catch(e){}
+      if (!chosen) {
+        const maleNames = ["daniel", "antonio", "felipe", "fabio", "humberto", "julio", "donato", "male", "masculino"];
+        chosen = ptVoices.find(v => maleNames.some(m => v.name.toLowerCase().includes(m)));
+        if (chosen) mode = "masculina automática";
       }
+      if (!chosen && ptVoices.length > 0) { chosen = ptVoices[0]; mode = "português com tom grave"; }
+      if (!chosen) { chosen = voices[0]; mode = "padrão do sistema"; }
+
+      appState.selectedVoice = chosen;
+      appState.isMasculineVoice = (mode === "manual" || mode === "masculina automática");
+      appState.chosenPitch = appState.isMasculineVoice ? 1.0 : 0.8;
+      if (chosen) selectVoz.value = chosen.name;
+      logDiag(`Voz escolhida: ${chosen?chosen.name:'Nenhuma'} (${chosen?chosen.lang:''}), pitch ${appState.chosenPitch}, modo [${mode}]`);
     }
 
-    function onVoiceSelectionChange() {
-      const selectedValue = voiceSelect.value;
-      if (selectedValue) {
-        try { localStorage.setItem(STORAGE_KEY_VOICE, selectedValue); } catch (e) {}
-        const config = getSelectedVoiceConfig();
-        if (config && config.voice) {
-          logDiagnostic(`Voz alterada: ${config.voice.name} (${config.voice.lang}), pitch ${config.pitch}, modo manual`);
+    if ("speechSynthesis" in window) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    selectVoz.addEventListener("change", () => {
+      const voices = window.speechSynthesis.getVoices();
+      const selected = voices.find(v => v.name === selectVoz.value);
+      if (selected) {
+        appState.selectedVoice = selected;
+        appState.chosenPitch = 1.0;
+        try { localStorage.setItem("voz_selecionada", selected.name); } catch(e){}
+        logDiag(`Voz alterada manualmente: ${selected.name}`);
+      }
+    });
+
+    btnTestarVoz.addEventListener("click", () => speak("Olá, eu sou o Assistente de Visão. Esta é a minha voz."));
+
+    async function initCamera() {
+      logDiag(`Contexto seguro: [${window.isSecureContext}]`);
+      logDiag(`getUserMedia disponível: [${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}]`);
+      logDiag(`Dentro de iframe: [${window.self !== window.top}]`);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        respostaBox.textContent = "Este navegador não permite câmera aqui. Abra o link direto no Chrome ou no Safari.";
+        logDiag("Câmera indisponível: getUserMedia ausente", true);
+        return;
+      }
+
+      const configs = [
+        { name: "Attempt A (Ideal HD)", constraints: { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false } },
+        { name: "Attempt B (FacingMode)", constraints: { video: { facingMode: { ideal: "environment" } }, audio: false } },
+        { name: "Attempt C (Default Video)", constraints: { video: true, audio: false } }
+      ];
+
+      for (const config of configs) {
+        try {
+          logDiag(`Tentando câmera: ${config.name}...`);
+          const stream = await navigator.mediaDevices.getUserMedia(config.constraints);
+          video.srcObject = stream;
+          appState.currentStream = stream;
+          await new Promise(r => video.onloadedmetadata = r);
+          logDiag(`Câmera aberta via [${config.name}]: ${video.videoWidth}x${video.videoHeight}`);
+          return;
+        } catch (err) {
+          logDiag(`Falha na ${config.name}: ${err.name} - ${err.message}`);
         }
       }
+
+      respostaBox.textContent = "Erro ao acessar a câmera. Verifique as permissões do seu navegador.";
     }
 
-    function speak(text, interruptPrevious = true) {
-      if (!('speechSynthesis' in window)) return;
+    btnRetryCamera.addEventListener("click", initCamera);
+
+    function captureImage(maxDim = 768, quality = 0.8) {
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      canvasCap.width = w * scale;
+      canvasCap.height = h * scale;
+      const ctx = canvasCap.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvasCap.width, canvasCap.height);
+      const dataUrl = canvasCap.toDataURL("image/jpeg", quality);
+      const base64 = dataUrl.split(",")[1];
+      const sizeKB = Math.round((base64.length * 3 / 4) / 1024);
+      return { base64, sizeKB };
+    }
+
+    function captureGrayscaleThumb() {
+      const ctx = canvasThumb.getContext("2d");
+      ctx.drawImage(video, 0, 0, 32, 24);
+      const imgData = ctx.getImageData(0, 0, 32, 24);
+      const data = imgData.data;
+      const gray = new Uint8Array(32 * 24);
+      let sumLum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const lum = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+        gray[i / 4] = lum;
+        sumLum += lum;
+      }
+      return { gray, avgLum: sumLum / (32 * 24) };
+    }
+
+    function computeDiffPercent(thumb1, thumb2) {
+      if (!thumb1 || !thumb2) return 100;
+      let totalDiff = 0;
+      for (let i = 0; i < thumb1.length; i++) {
+        totalDiff += Math.abs(thumb1[i] - thumb2[i]);
+      }
+      return (totalDiff / (thumb1.length * 255)) * 100;
+    }
+
+    async function callGeminiApi(promptText, base64Image, signal) {
+      const key = getApiKey();
+      if (!key) {
+        speak("Falta a chave da API. Abra os ajustes.");
+        document.querySelector("details").open = true;
+        inputKey.focus();
+        throw new Error("Chave da API não configurada.");
+      }
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+      const payload = {
+        contents: [{
+          parts: [
+            { text: promptText },
+            { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+          ]
+        }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 150 }
+      };
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify(payload),
+        signal: signal
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errText}`);
+      }
+      const resData = await response.json();
+      return resData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    }
+
+    btnIdentificar.addEventListener("click", async () => {
+      if (appState.narrando) return;
+      speak("Analisando");
+      btnIdentificar.disabled = true;
+      btnIdentificar.textContent = "ANALISANDO...";
+      const startTime = Date.now();
 
       try {
-        if (interruptPrevious) {
-          window.speechSynthesis.cancel();
-          appState.isSpeakingInternal = false;
-        }
+        const { base64, sizeKB } = captureImage(768, 0.8);
+        logDiag(`Foto capturada: ${sizeKB} KB`);
+        logDiag("Enviando para a IA...");
 
-        const config = getSelectedVoiceConfig();
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        utterance.lang = "pt-BR";
-        utterance.rate = 1.0;
-        utterance.volume = 1.0;
+        const prompt = "Você ajuda uma pessoa cega. Diga, em português do Brasil e em no máximo 2 frases curtas, quais são os objetos principais que aparecem à frente e onde estão (à frente, à esquerda, à direita). Comece pelo objeto mais próximo. Não use as palavras imagem ou foto.";
+        const rawText = await callGeminiApi(prompt, base64, null);
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
 
-        if (config && config.voice) {
-          utterance.voice = config.voice;
-          utterance.pitch = config.pitch;
-        } else {
-          utterance.pitch = 0.8;
-        }
-
-        const snippet = text.length > 40 ? text.substring(0, 40) + "..." : text;
-        logDiagnostic(`Falando: ${snippet}`);
-
-        utterance.onstart = () => {
-          appState.isSpeakingInternal = true;
-        };
-
-        utterance.onend = () => {
-          appState.isSpeakingInternal = false;
-          logDiagnostic("Fala concluída");
-        };
-
-        utterance.onerror = (evt) => {
-          appState.isSpeakingInternal = false;
-          logDiagnostic(`Erro na fala: ${evt.error || 'Desconhecido'}`, true);
-        };
-
-        window.speechSynthesis.speak(utterance);
-
+        logDiag(`Resposta recebida em ${elapsedSec}s: ${rawText}`);
+        respostaBox.textContent = rawText;
+        speak(rawText);
       } catch (err) {
-        appState.isSpeakingInternal = false;
-        logDiagnostic(`Erro na fala: ${err.message || err}`, true);
-      }
-    }
-
-    function testVoice() {
-      speak("Olá, eu sou o Assistente de Visão. Esta é a minha voz.");
-    }
-
-    /* ==========================================
-       GESTÃO DE AJUSTES E PAINEL (LOCALSTORAGE)
-       ========================================== */
-    function loadSavedConfigs() {
-      try {
-        const savedComp = localStorage.getItem(STORAGE_KEY_COMP_INTERVAL);
-        if (savedComp && ["0.5", "1", "2"].includes(savedComp)) {
-          compIntervalSelect.value = savedComp;
-        }
-
-        const savedSens = localStorage.getItem(STORAGE_KEY_SENSITIVITY);
-        if (savedSens && ["8", "15", "25", "35"].includes(savedSens)) {
-          sensitivitySelect.value = savedSens;
-        }
-
-        const savedSafety = localStorage.getItem(STORAGE_KEY_SAFETY);
-        if (savedSafety && ["10", "15", "30"].includes(savedSafety)) {
-          safetySelect.value = savedSafety;
-        }
-      } catch (e) {}
-    }
-
-    function onConfigChange() {
-      try {
-        localStorage.setItem(STORAGE_KEY_COMP_INTERVAL, compIntervalSelect.value);
-        localStorage.setItem(STORAGE_KEY_SENSITIVITY, sensitivitySelect.value);
-        localStorage.setItem(STORAGE_KEY_SAFETY, safetySelect.value);
-        logDiagnostic(`Ajustes: Comparação=${compIntervalSelect.value}s, Sensibilidade=${sensitivitySelect.value}%, Segurança=${safetySelect.value}s`);
-      } catch (e) {}
-    }
-
-    /* ==========================================
-       PARSER DE RESPOSTA EM LINHA ÚNICA DE TEXTO
-       ========================================== */
-    function parseTextLineResponse(rawText) {
-      if (!rawText) return { falar: false, prioridade: 'info', texto: '' };
-
-      let cleaned = rawText.trim()
-        .replace(/```[a-z]*\s*/gi, '')
-        .replace(/```/g, '')
-        .replace(/^[\s`*"]+/, '')
-        .replace(/[\s`*"]+$/, '')
-        .trim();
-
-      const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      const firstLine = lines[0] || '';
-
-      if (firstLine.toUpperCase().startsWith('SILENCIO') || firstLine.toUpperCase().startsWith('SILÊNCIO')) {
-        return { falar: false, prioridade: 'info', texto: '' };
-      }
-
-      if (firstLine.toUpperCase().startsWith('ALERTA:')) {
-        const texto = firstLine.substring(7).trim();
-        return { falar: true, prioridade: 'alerta', texto };
-      }
-
-      if (firstLine.toUpperCase().startsWith('INFO:')) {
-        const texto = firstLine.substring(5).trim();
-        return { falar: true, prioridade: 'info', texto };
-      }
-
-      return { falar: true, prioridade: 'info', texto: firstLine };
-    }
-
-    /* ==========================================
-       MODO MANUAL (IDENTIFICAR OBJETO)
-       ========================================== */
-    async function identifyObjectManual() {
-      if (appState.isNarrating) return;
-
-      speak("Analisando", true);
-      btnIdentify.disabled = true;
-      btnIdentify.innerText = "ANALISANDO...";
-      aiResponseText.innerText = "Analisando o ambiente...";
-
-      const startTime = performance.now();
-
-      try {
-        const base64Data = captureCanvasBase64();
-        const sizeInKB = Math.round((base64Data.length * 0.75) / 1024);
-        logDiagnostic(`Foto capturada: ${sizeInKB} KB`);
-
-        logDiagnostic("Enviando para a IA...");
-        
-        const apiKey = "";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-        const promptInstrucao = "Você ajuda uma pessoa cega. Diga, em português do Brasil e em no máximo 2 frases curtas, quais são os objetos principais que aparecem à frente e onde estão (à frente, à esquerda, à direita). Comece pelo objeto mais próximo. Não use as palavras imagem ou foto.";
-
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [
-                { text: promptInstrucao },
-                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-              ]
-            }]
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const result = await response.json();
-        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error("Resposta vazia da IA.");
-
-        const durationSec = parseFloat(((performance.now() - startTime) / 1000).toFixed(2));
-        logDiagnostic(`Resposta recebida em ${durationSec} segundos`);
-        
-        recordAiResponseTime(durationSec);
-
-        const trimmedText = text.trim();
-        aiResponseText.innerText = trimmedText;
-        speak(trimmedText, true);
-
-      } catch (err) {
-        logDiagnostic(`Erro na IA: ${err.message || err}`, true);
-        aiResponseText.innerText = "Erro ao identificar objeto. Veja o diagnóstico.";
-        speak("Não consegui identificar. Tente de novo.", true);
+        logDiag(`Erro na IA: ${err.message}`, true);
+        respostaBox.textContent = "Não consegui identificar. Tente de novo.";
+        speak("Não consegui identificar. Tente de novo.");
       } finally {
-        btnIdentify.disabled = false;
-        btnIdentify.innerText = "IDENTIFICAR OBJETO";
+        btnIdentificar.disabled = false;
+        btnIdentificar.textContent = "IDENTIFICAR OBJETO";
       }
+    });
+
+    let currentHistory = [];
+
+    function parseTextResponse(raw) {
+      let text = raw.trim().replace(/^[`'"]+|[`'"]+$/g, '');
+      text = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      const firstLine = text.split('\n')[0].trim();
+
+      if (firstLine.startsWith("SILENCIO")) return { falar: false, prioridade: "info", texto: "" };
+      if (firstLine.startsWith("ALERTA:")) return { falar: true, prioridade: "alerta", texto: firstLine.substring(7).trim() };
+      if (firstLine.startsWith("INFO:")) return { falar: true, prioridade: "info", texto: firstLine.substring(5).trim() };
+
+      return { falar: true, prioridade: "info", texto: firstLine };
     }
 
-    /* ==========================================
-       NARRAÇÃO CONTÍNUA AUTOMÁTICA (ETAPA 4)
-       ========================================== */
-    function toggleNarration() {
-      if (appState.isNarrating) {
-        pauseNarration(true);
-      } else {
-        startNarration();
-      }
+    function updatePlacar() {
+      const econ = stats.comparadas > 0 ? Math.round((1 - (stats.enviadas / stats.comparadas)) * 100) : 0;
+      const avgTime = appState.responseTimes.length > 0
+        ? (appState.responseTimes.reduce((a,b)=>a+b,0) / appState.responseTimes.length).toFixed(1) : "0.0";
+      placar.textContent = `Comparadas: ${stats.comparadas} | Enviadas: ${stats.enviadas} | Economia: ${econ}% | Falas: ${stats.falas} | Silêncios: ${stats.silencios} | Média: ${avgTime}s`;
     }
 
-    function startNarration() {
-      if (appState.isNarrating) return;
-
-      speak("Narração iniciada", true);
-
-      appState.isNarrating = true;
-      appState.wasPausedByVisibility = false;
-      appState.isFirstSend = true;
-      appState.refImageData32x24 = null;
-      appState.consecutiveChangeCount = 0;
-      appState.darkStartTime = null;
-      appState.hasSpokenDarkWarning = false;
-      appState.lastSpokenTimestamp = Date.now();
-      appState.lastAiSendTime = 0;
-
-      btnToggleNarration.className = "flex-1 bg-red-600 hover:bg-red-500 text-white font-extrabold text-lg py-3.5 px-4 rounded-2xl shadow-lg active:scale-98 transition duration-150 border-2 border-red-400 flex items-center justify-center gap-2";
-      btnToggleNarration.innerHTML = `<span>⏸</span> PAUSAR NARRAÇÃO`;
-      btnIdentify.disabled = true;
-
-      requestWakeLock();
-      logDiagnostic("Narração contínua iniciada com detecção de mudança local.");
-      
-      startLocalComparisonLoop();
-    }
-
-    function pauseNarration(userInitiated = true) {
-      if (!appState.isNarrating && !userInitiated) return;
-
-      appState.isNarrating = false;
-
-      if (userInitiated) {
-        speak("Narração pausada", true);
-      }
-
-      if (appState.localLoopTimerId) {
-        clearTimeout(appState.localLoopTimerId);
-        appState.localLoopTimerId = null;
-      }
-
-      if (appState.abortController) {
-        try { appState.abortController.abort(); } catch(e){}
-        appState.abortController = null;
-      }
-
-      releaseWakeLock();
-
-      btnToggleNarration.className = "flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-lg py-3.5 px-4 rounded-2xl shadow-lg active:scale-98 transition duration-150 border-2 border-emerald-300 flex items-center justify-center gap-2";
-      btnToggleNarration.innerHTML = `<span>▶</span> INICIAR NARRAÇÃO`;
-      btnIdentify.disabled = false;
-
-      overlayChange.textContent = "Mudança: 0.0%";
-      overlayBrightness.textContent = "Brilho: --";
-
-      logDiagnostic("Narração pausada.");
-    }
-
-    /* ==========================================
-       LOOP DE COMPARAÇÃO LOCAL (0.5s, 1s, 2s)
-       ========================================== */
-    function startLocalComparisonLoop() {
-      if (!appState.isNarrating) return;
-
-      runLocalComparisonStep();
-    }
-
-    function runLocalComparisonStep() {
-      if (!appState.isNarrating) return;
-
-      const frameData = getGrayscale32x24();
-
-      if (!frameData) {
-        scheduleNextLocalStep();
-        return;
-      }
-
-      const { gray, avgBrightness } = frameData;
-      const bRounded = Math.round(avgBrightness);
-
-      overlayBrightness.textContent = `Brilho: ${bRounded}`;
-
-      // 1. VERIFICAÇÃO DE ESCURIDÃO (Brilho < 20)
-      if (avgBrightness < 20) {
-        appState.consecutiveChangeCount = 0;
-        overlayChange.textContent = "Câmera Escura";
-        overlayChange.className = "text-red-400 font-bold animate-pulse";
-
-        if (!appState.darkStartTime) {
-          appState.darkStartTime = Date.now();
-        }
-
-        const darkElapsedSec = (Date.now() - appState.darkStartTime) / 1000;
-        logDiagnostic(`Imagem escura (brilho ${bRounded})`);
-
-        if (darkElapsedSec >= 10 && !appState.hasSpokenDarkWarning) {
-          speak("Câmera tapada ou ambiente muito escuro.", true);
-          appState.hasSpokenDarkWarning = true;
-        }
-
-        scheduleNextLocalStep();
-        return;
-      }
-
-      // Se iluminação voltou (Brilho >= 20), reseta contadores de escuridão
-      appState.darkStartTime = null;
-      appState.hasSpokenDarkWarning = false;
-
-      appState.stats.comparadas++;
-      updateScoreboard();
-
-      // 2. PRIMEIRO QUADRO / INÍCIO DA NARRAÇÃO
-      if (appState.isFirstSend || !appState.refImageData32x24) {
-        overlayChange.textContent = "Mudança: INÍCIO";
-        overlayChange.className = "text-purple-400 font-bold";
-
-        triggerAiSendIfReady("início", gray);
-        scheduleNextLocalStep();
-        return;
-      }
-
-      // 3. COMPARAÇÃO DE MUDANÇA COM A REFERÊNCIA
-      const diffPct = calcDiffPercentage(gray, appState.refImageData32x24);
-      const diffRounded = parseFloat(diffPct.toFixed(1));
-
-      overlayChange.textContent = `Mudança: ${diffRounded}%`;
-      logDiagnostic(`Mudança: ${diffRounded}% | Brilho: ${bRounded}`);
-
-      const userThreshold = parseFloat(sensitivitySelect.value) || 15;
-
-      // 4. FILTRO DE ESTABILIDADE (ANTITREMIDA: >= 2 COMPARAÇÕES SEGUIDAS)
-      if (diffPct >= userThreshold) {
-        appState.consecutiveChangeCount++;
-        overlayChange.className = "text-yellow-300 font-bold";
-      } else {
-        appState.consecutiveChangeCount = 0;
-        overlayChange.className = "text-cyan-400 font-bold";
-      }
-
-      // 5. CHECAGEM DAS CONDIÇÕES DE DISPARO DE ENVIO
-      const now = Date.now();
-      const timeSinceLastAiSendSec = (now - appState.lastAiSendTime) / 1000;
-      const userSafetySec = parseFloat(safetySelect.value) || 15;
-
-      let triggerReason = null;
-
-      if (appState.consecutiveChangeCount >= 2) {
-        triggerReason = `mudança ${Math.round(diffPct)}%`;
-      } else if (timeSinceLastAiSendSec >= userSafetySec) {
-        triggerReason = "segurança";
-      }
-
-      if (triggerReason) {
-        triggerAiSendIfReady(triggerReason, gray);
-      }
-
-      scheduleNextLocalStep();
-    }
-
-    function scheduleNextLocalStep() {
-      if (!appState.isNarrating) return;
-
-      if (appState.localLoopTimerId) clearTimeout(appState.localLoopTimerId);
-
-      const intervalSec = parseFloat(compIntervalSelect.value) || 1.0;
-      const delayMs = Math.round(intervalSec * 1000);
-
-      appState.localLoopTimerId = setTimeout(() => {
-        runLocalComparisonStep();
-      }, delayMs);
-    }
-
-    /* ==========================================
-       DISPARO DE ENVIO À IA (GEMINI FLASH)
-       ========================================== */
-    async function triggerAiSendIfReady(reason, currentGrayArray) {
-      // Regra de Trava e Intervalo Mínimo entre envios à IA (min 3.0s)
+    async function executeCycle(reason) {
       if (appState.isProcessingFrame) return;
-
-      const now = Date.now();
-      const timeSinceLastSendSec = (now - appState.lastAiSendTime) / 1000;
-
-      if (appState.lastAiSendTime > 0 && timeSinceLastSendSec < 3.0) {
-        return; // Respeita cota mínima de 3 segundos entre requisições
-      }
-
       appState.isProcessingFrame = true;
-      appState.lastAiSendTime = now;
-      appState.refImageData32x24 = new Uint8ClampedArray(currentGrayArray);
-      appState.consecutiveChangeCount = 0;
-      appState.isFirstSend = false;
 
-      // Atualiza estatísticas do placar
-      appState.stats.enviadasTotal++;
-      if (reason.startsWith("mudança")) {
-        appState.stats.enviadasMudanca++;
-      } else if (reason === "segurança") {
-        appState.stats.enviadasSeguranca++;
-      } else if (reason === "início") {
-        appState.stats.enviadasInicio++;
-      }
-      updateScoreboard();
-
-      logDiagnostic(`Enviada por [${reason}]`);
-
-      let base64Data = "";
-      const captureTimestamp = Date.now();
+      const captureTime = Date.now();
+      appState.abortController = new AbortController();
+      const timeoutId = setTimeout(() => appState.abortController.abort(), 8000);
 
       try {
-        base64Data = captureCanvasBase64();
-      } catch (err) {
-        logDiagnostic(`Erro na captura da foto: ${err.message}`, true);
-        appState.stats.erros++;
-        updateScoreboard();
-        appState.isProcessingFrame = false;
-        return;
-      }
+        const { base64, sizeKB } = captureImage(768, 0.8);
+        stats.enviadas++;
+        if (reason.startsWith("mudança")) stats.porMudanca++;
+        else if (reason === "segurança") stats.porSeguranca++;
+        updatePlacar();
 
-      const ultimasFalasText = appState.last3Phrases.length > 0 ? appState.last3Phrases.join(" | ") : "nada ainda";
-      const isSilentLongerThan45s = (Date.now() - appState.lastSpokenTimestamp) > 45000;
-      const pedirResumoText = isSilentLongerThan45s 
-        ? "A pessoa está há um tempo sem ouvir nada: responda INFO com um resumo de no máximo 10 palavras do ambiente." 
-        : "";
+        logDiag(`Enviada por [${reason}]: ${sizeKB} KB`);
 
-      const promptTextoExacto = `Você é o assistente de visão de uma pessoa cega que está andando. A foto foi tirada agora por um celular preso ao peito dela, apontando para frente.
+        const silenceTimeSec = (captureTime - appState.lastTalkTime) / 1000;
+        const pedirResumo = silenceTimeSec >= 45
+          ? "A pessoa está há um tempo sem ouvir nada: responda INFO com um resumo de no máximo 10 palavras do ambiente." : "";
+        const ultimasFalasText = currentHistory.length > 0 ? currentHistory.join(" | ") : "nada ainda";
+
+        const prompt = `Você é o assistente de visão de uma pessoa cega que está andando. A foto foi tirada agora por um celular preso ao peito dela, apontando para frente.
 O que você já falou recentemente (do mais antigo para o mais novo): ${ultimasFalasText}
 Decida se precisa falar algo AGORA e responda com UMA ÚNICA LINHA, em português do Brasil, sem nenhum outro texto antes ou depois, em um destes formatos:
 SILENCIO
@@ -1116,304 +398,167 @@ INFO: frase curta
 - Use ALERTA para riscos imediatos no caminho: degrau, escada, buraco, desnível, meio-fio, obstáculo na altura do corpo ou da cabeça, veículo, bicicleta, porta de vidro, pessoa muito perto. Diga o que é, a posição (à frente, à esquerda, à direita) e a distância aproximada em passos. Exemplo: ALERTA: degrau à frente, a dois passos.
 - Use INFO para mudanças úteis de ambiente ou orientação: entrada, porta, corredor, faixa de pedestre, semáforo e sua cor, esquina, objeto novo relevante. Exemplo: INFO: porta aberta à direita.
 - Responda SILENCIO se a cena for essencialmente a mesma do que já foi falado e não houver risco novo, ou se a câmera estiver tapada, muito escura ou tremida.
-- ${pedirResumoText}
+- ${pedirResumo}
 Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. Não invente riscos. Não repita o que já foi falado, a não ser que um risco tenha ficado mais perto.`;
 
-      const payload = {
-        contents: [{
-          role: "user",
-          parts: [
-            { text: promptTextoExacto },
-            { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 150
-        }
-      };
-
-      appState.abortController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        if (appState.abortController) {
-          appState.abortController.abort();
-        }
-      }, 8000);
-
-      const apiKey = "";
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: appState.abortController.signal
-        });
-
+        const rawResponse = await callGeminiApi(prompt, base64, appState.abortController.signal);
         clearTimeout(timeoutId);
 
-        if (response.status === 429) {
-          appState.stats.erros++;
-          updateScoreboard();
-          handleRateLimit429();
-        } else if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        } else {
-          const result = await response.json();
-          const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-          
-          const parsed = parseTextLineResponse(rawText);
-          const elapsedSec = parseFloat(((Date.now() - captureTimestamp) / 1000).toFixed(2));
+        const responseSec = (Date.now() - captureTime) / 1000;
+        appState.responseTimes.push(responseSec);
+        if (appState.responseTimes.length > 20) appState.responseTimes.shift();
 
-          logDiagnostic(`Resposta em ${elapsedSec} s: falar=${parsed.falar}, prioridade=${parsed.prioridade}, texto="${parsed.texto}"`);
+        const decision = parseTextResponse(rawResponse);
+        logDiag(`Resposta em ${responseSec.toFixed(1)}s: falar=${decision.falar}, prioridade=${decision.prioridade}, texto="${decision.texto}"`);
 
-          recordAiResponseTime(elapsedSec);
-          appState.consecutiveErrors = 0;
-          processAiResponse(parsed, elapsedSec);
-        }
-
-      } catch (err) {
-        clearTimeout(timeoutId);
-        
-        if (err.name === 'AbortError') {
-          logDiagnostic("Tempo esgotado (8 s)", true);
-        } else {
-          logDiagnostic(`Erro: ${err.message || err}`, true);
-        }
-
-        appState.stats.erros++;
-        appState.consecutiveErrors++;
-        updateScoreboard();
-
-        if (appState.consecutiveErrors === 3) {
-          speak("Problema de conexão", true);
-        }
-
-      } finally {
-        appState.isProcessingFrame = false;
-        appState.abortController = null;
-      }
-    }
-
-    function handleRateLimit429() {
-      appState.rateLimitMultiplier = Math.min(8, appState.rateLimitMultiplier * 2);
-      
-      logDiagnostic(`Erro 429: limite de cota da IA atingido`, true);
-
-      if (!appState.hasAnnouncedRateLimit) {
-        speak("Limite gratuito atingido, vou analisar com menos frequência", true);
-        appState.hasAnnouncedRateLimit = true;
-      }
-
-      if (appState.rateLimitResetTimer) clearTimeout(appState.rateLimitResetTimer);
-      appState.rateLimitResetTimer = setTimeout(() => {
-        appState.rateLimitMultiplier = 1;
-        appState.hasAnnouncedRateLimit = false;
-        logDiagnostic("Restaurando cota normal de análise.");
-      }, 120000);
-    }
-
-    /* ==========================================
-       PROCESSAMENTO DA RESPOSTA E SÍNTESE
-       ========================================== */
-    function processAiResponse(data, elapsedSec) {
-      if (!data.falar || !data.texto || data.texto.trim() === "") {
-        appState.stats.silencios++;
-        updateScoreboard();
-        return;
-      }
-
-      let textoParaFalar = data.texto.trim();
-
-      // Regras de atraso (info descarte > 8s, alerta aviso > 4s)
-      if (data.prioridade === "info") {
-        if (elapsedSec > 8.0) {
-          appState.stats.descartadas++;
-          updateScoreboard();
-          logDiagnostic(`Descartada: atrasada ${elapsedSec.toFixed(1)} s (> 8.0s)`);
+        if (!decision.falar) {
+          stats.silencios++;
+          updatePlacar();
           return;
         }
-      } else if (data.prioridade === "alerta") {
-        if (elapsedSec > 4.0) {
-          textoParaFalar = `Atenção, informação atrasada: ${textoParaFalar}`;
-          logDiagnostic(`Alerta emitido com aviso de atraso (${elapsedSec.toFixed(1)} s > 4.0s)`);
+
+        const elapsedSinceCap = (Date.now() - captureTime) / 1000;
+
+        if (decision.prioridade === "info") {
+          if (elapsedSinceCap > 8.0) { logDiag(`Descartada: info atrasada (${elapsedSinceCap.toFixed(1)}s)`); return; }
+          if (appState.isSpeakingInternal) { logDiag("Descartada: já estava falando"); return; }
         }
-      }
 
-      if (data.prioridade === "info" && appState.isSpeakingInternal) {
-        appState.stats.descartadas++;
-        updateScoreboard();
-        logDiagnostic("Descartada: já estava falando");
-        return;
-      }
-
-      if (data.prioridade === "alerta") {
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-        if ('vibrate' in navigator) {
-          try { navigator.vibrate([200, 100, 200]); } catch(e){}
+        let phraseToSpeak = decision.texto;
+        if (decision.prioridade === "alerta") {
+          if (elapsedSinceCap > 4.0) phraseToSpeak = `Atenção, informação atrasada: ${phraseToSpeak}`;
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         }
-        appState.stats.alertas++;
-      }
 
-      aiResponseText.innerText = textoParaFalar;
-      speak(textoParaFalar, data.prioridade === "alerta");
+        respostaBox.textContent = phraseToSpeak;
+        currentHistory.push(phraseToSpeak);
+        if (currentHistory.length > 3) currentHistory.shift();
 
-      appState.stats.falas++;
-      updateScoreboard();
+        appState.lastTalkTime = Date.now();
+        stats.falas++;
+        if (decision.prioridade === "alerta") stats.alertas++;
+        updatePlacar();
 
-      appState.last3Phrases.push(textoParaFalar);
-      if (appState.last3Phrases.length > 3) {
-        appState.last3Phrases.shift();
-      }
-      appState.lastSpokenTimestamp = Date.now();
-    }
-
-    /* ==========================================
-       FERRAMENTA DE TESTE DE 1 CICLO
-       ========================================== */
-    async function runSingleTestCycle() {
-      logDiagnostic("=== TESTE DE 1 CICLO INICIADO ===");
-      logDiagnostic("1. Ciclo iniciado");
-
-      const captureTimestamp = Date.now();
-      let base64Data = "";
-
-      try {
-        base64Data = captureCanvasBase64();
-        const sizeInKB = Math.round((base64Data.length * 0.75) / 1024);
-        logDiagnostic(`2. Foto capturada: ${sizeInKB} KB`);
+        speak(phraseToSpeak);
       } catch (err) {
-        logDiagnostic(`2. Erro na foto: ${err.message}`, true);
-        return;
-      }
-
-      const ultimasFalasText = appState.last3Phrases.length > 0 ? appState.last3Phrases.join(" | ") : "nada ainda";
-      logDiagnostic(`3. Enviando. Últimas falas: [${ultimasFalasText}]`);
-
-      const promptTextoExacto = `Você é o assistente de visão de uma pessoa cega que está andando. A foto foi tirada agora por um celular preso ao peito dela, apontando para frente.
-O que você já falou recentemente (do mais antigo para o mais novo): ${ultimasFalasText}
-Decida se precisa falar algo AGORA e responda com UMA ÚNICA LINHA, em português do Brasil, sem nenhum outro texto antes ou depois, em um destes formatos:
-SILENCIO
-ALERTA: frase curta
-INFO: frase curta
-- Use ALERTA para riscos imediatos no caminho: degrau, escada, buraco, desnível, meio-fio, obstáculo na altura do corpo ou da cabeça, veículo, bicicleta, porta de vidro, pessoa muito perto. Diga o que é, a posição (à frente, à esquerda, à direita) e a distância aproximada em passos. Exemplo: ALERTA: degrau à frente, a dois passos.
-- Use INFO para mudanças úteis de ambiente ou orientação: entrada, porta, corredor, faixa de pedestre, semáforo e sua cor, esquina, objeto novo relevante. Exemplo: INFO: porta aberta à direita.
-- Responda SILENCIO se a cena for essencialmente a mesma do que já foi falado e não houver risco novo, ou se a câmera estiver tapada, muito escura ou tremida.
-Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. Não invente riscos. Não repita o que já foi falado, a não ser que um risco tenha ficado mais perto.`;
-
-      const payload = {
-        contents: [{
-          role: "user",
-          parts: [
-            { text: promptTextoExacto },
-            { inlineData: { mimeType: "image/jpeg", data: base64Data } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 150
-        }
-      };
-
-      const apiKey = "";
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
-
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const result = await response.json();
-        const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        
-        logDiagnostic(`4. Resposta BRUTA da IA: ${rawText}`);
-
-        const parsed = parseTextLineResponse(rawText);
-        logDiagnostic(`5. Resposta interpretada: falar=${parsed.falar}, prioridade=${parsed.prioridade}, texto="${parsed.texto}"`);
-
-        const elapsedSec = parseFloat(((Date.now() - captureTimestamp) / 1000).toFixed(2));
-        recordAiResponseTime(elapsedSec);
-
-        let decisao = "SILÊNCIO";
-
-        if (parsed.falar && parsed.texto) {
-          if (parsed.prioridade === "info" && elapsedSec > 8.0) {
-            decisao = `DESCARTADA (motivo: atraso ${elapsedSec}s > 8.0s)`;
-          } else if (parsed.prioridade === "alerta" && elapsedSec > 4.0) {
-            decisao = `FALAR (Alerta com prefixo de atraso: ${elapsedSec}s > 4.0s)`;
-          } else if (parsed.prioridade === "info" && appState.isSpeakingInternal) {
-            decisao = "DESCARTADA (motivo: já estava falando)";
-          } else {
-            decisao = "FALAR";
-          }
-        }
-
-        logDiagnostic(`6. Decisão: ${decisao}`);
-
-        if (decisao.startsWith("FALAR")) {
-          let textoParaFalar = parsed.texto;
-          if (parsed.prioridade === "alerta" && elapsedSec > 4.0) {
-            textoParaFalar = `Atenção, informação atrasada: ${textoParaFalar}`;
-          }
-          aiResponseText.innerText = textoParaFalar;
-          speak(textoParaFalar, parsed.prioridade === "alerta");
-          logDiagnostic("7. Fala: iniciada");
+        clearTimeout(timeoutId);
+        if (err.name === "AbortError") {
+          logDiag("Tempo esgotado (8s)", true);
         } else {
-          logDiagnostic("7. Fala: não necessária / descartada");
+          stats.erros++;
+          logDiag(`Erro no ciclo: ${err.message}`, true);
         }
-
-      } catch (err) {
-        logDiagnostic(`ERRO no teste: ${err.message || err}`, true);
+        updatePlacar();
       } finally {
-        logDiagnostic("=== FIM DO TESTE DE 1 CICLO ===");
+        appState.isProcessingFrame = false;
+        appState.lastSentTime = Date.now();
       }
     }
 
-    /* ==========================================
-       DETECÇÃO DE MUDANÇA DE ABA (VISIBILITYCHANGE)
-       ========================================== */
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        if (appState.isNarrating) {
-          appState.wasPausedByVisibility = true;
-          pauseNarration(false);
-          logDiagnostic("Aba oculta: narração pausada automaticamente.");
+    let comparisonLoopTimer = null;
+
+    function runComparisonLoop() {
+      if (!appState.narrando) return;
+
+      stats.comparadas++;
+      const { gray, avgLum } = captureGrayscaleThumb();
+
+      if (avgLum < 20) {
+        if (appState.darkStartTime === 0) appState.darkStartTime = Date.now();
+        const darkDuration = (Date.now() - appState.darkStartTime) / 1000;
+        logDiag(`Imagem escura (${avgLum.toFixed(1)}/255) há ${darkDuration.toFixed(1)}s`);
+        if (darkDuration >= 10 && !appState.darkWarned) {
+          speak("Câmera tapada ou ambiente muito escuro.");
+          appState.darkWarned = true;
         }
       } else {
-        if (appState.wasPausedByVisibility) {
-          appState.wasPausedByVisibility = false;
-          logDiagnostic("Aba visível novamente.");
-          aiResponseText.innerText = "Narração pausada. Toque em iniciar para continuar.";
-          speak("Narração pausada. Toque em iniciar para continuar.", true);
+        appState.darkStartTime = 0;
+        appState.darkWarned = false;
+      }
+
+      const sensivity = parseFloat(selectSensibilidade.value);
+      const diffPercent = computeDiffPercent(gray, appState.lastSentGrayThumb);
+      const timeSinceLastSent = Date.now() - appState.lastSentTime;
+      const minInterval = 3000;
+      const safetyTime = parseFloat(selectSeguranca.value);
+
+      let shouldSend = false;
+      let reason = "";
+
+      if (timeSinceLastSent >= minInterval && !appState.isProcessingFrame) {
+        if (!appState.lastSentGrayThumb) {
+          shouldSend = true; reason = "início";
+        } else if (diffPercent > sensivity) {
+          if (appState.lastConsecutiveDiff > sensivity) {
+            shouldSend = true; reason = `mudança ${diffPercent.toFixed(1)}%`;
+          }
+        } else if (timeSinceLastSent >= safetyTime) {
+          shouldSend = true; reason = "segurança";
         }
+      }
+
+      appState.lastConsecutiveDiff = diffPercent;
+      updatePlacar();
+
+      if (shouldSend) {
+        appState.lastSentGrayThumb = gray;
+        executeCycle(reason);
+      }
+
+      const compInterval = parseInt(selectComparacao.value, 10);
+      comparisonLoopTimer = setTimeout(runComparisonLoop, compInterval);
+    }
+
+    btnNarrar.addEventListener("click", async () => {
+      if (!appState.narrando) {
+        speak("Narração iniciada");
+        appState.narrando = true;
+        btnNarrar.textContent = "PAUSAR NARRAÇÃO";
+        btnNarrar.classList.add("pausar");
+        btnIdentificar.disabled = true;
+
+        try {
+          if ("wakeLock" in navigator) appState.wakeLock = await navigator.wakeLock.request("screen");
+          logDiag("Wake Lock: ativa");
+        } catch(e) { logDiag("Wake Lock: erro/não suportada"); }
+
+        appState.lastSentGrayThumb = null;
+        appState.lastSentTime = 0;
+        runComparisonLoop();
+      } else {
+        pausarNarracao("Narração pausada");
       }
     });
 
-    /* ==========================================
-       INICIALIZAÇÃO DO APLICATIVO
-       ========================================== */
-    window.addEventListener('load', () => {
-      logDiagnostic("Inicializando Assistente de Visão - Etapa 4...");
-      
-      initCamera();
-      loadSavedConfigs();
+    function pausarNarracao(msgVoz) {
+      if (msgVoz) speak(msgVoz);
+      appState.narrando = false;
+      btnNarrar.textContent = "INICIAR NARRAÇÃO";
+      btnNarrar.classList.remove("pausar");
+      btnIdentificar.disabled = false;
+      if (comparisonLoopTimer) clearTimeout(comparisonLoopTimer);
+      if (appState.abortController) appState.abortController.abort();
+      if (appState.wakeLock) { appState.wakeLock.release().catch(()=>{}); appState.wakeLock = null; }
+      logDiag("Narração pausada");
+    }
 
-      if ('speechSynthesis' in window) {
-        loadVoicesUI();
-        window.speechSynthesis.onvoiceschanged = () => {
-          loadVoicesUI();
-        };
-      } else {
-        logDiagnostic("Este navegador não suporta voz", true);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && appState.narrando) {
+        pausarNarracao("Narração pausada. Toque em iniciar para continuar.");
       }
     });
+
+    btnTestarCiclo.addEventListener("click", () => {
+      logDiag("--- INICIANDO 1 CICLO DE TESTE ---");
+      executeCycle("teste manual");
+    });
+
+    btnCopiarDiag.addEventListener("click", () => {
+      const text = diagBox.innerText;
+      navigator.clipboard.writeText(text).then(() => alert("Diagnóstico copiado!")).catch(() => alert("Falha ao copiar."));
+    });
+
+    initCamera();
   </script>
 </body>
 </html>
