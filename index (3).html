@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assistente de Visão</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #000; color: #fff; padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 100vh; }
+    #video-container { position: relative; width: 100%; height: 50vh; background-color: #111; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    .btn { width: 100%; padding: 16px; font-size: 18px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; text-align: center; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #btn-narrar { background-color: #00E676; color: #000; font-size: 20px; }
+    #btn-narrar.pausar { background-color: #FF1744; color: #FFF; }
+    #btn-identificar { background-color: #FFD400; color: #000; font-size: 20px; }
+    #resposta-box { background-color: #000; color: #fff; border: 2px solid #333; border-radius: 8px; padding: 16px; font-size: 24px; font-weight: bold; min-height: 100px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.3; }
+    #placar { background-color: #111; border: 1px solid #333; border-radius: 6px; padding: 10px; font-size: 13px; color: #FFD400; font-family: monospace; text-align: center; }
+    .controles-grupo { display: flex; flex-direction: column; gap: 8px; background-color: #111; padding: 10px; border-radius: 6px; border: 1px solid #222; }
+    .controle-item { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+    select, input[type="password"] { background-color: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 8px; font-size: 14px; width: 60%; }
+    input[type="password"] { width: 100%; }
+    details { background-color: #111; border: 1px solid #222; border-radius: 6px; padding: 8px; }
+    summary { font-weight: bold; cursor: pointer; font-size: 14px; color: #888; }
+    #diagnostico { background-color: #050505; border: 1px solid #222; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 11px; color: #00FF66; height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .btn-secundario { background-color: #333; color: #fff; padding: 8px; font-size: 13px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 4px; }
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline muted></video>
+  </div>
+
+  <button id="btn-narrar" class="btn">INICIAR NARRAÇÃO</button>
+  <button id="btn-identificar" class="btn">IDENTIFICAR OBJETO</button>
+
+  <div id="resposta-box">Aguardando análise...</div>
+  <div id="placar">Comparadas: 0 | Enviadas: 0 | Economia: 0% | Falas: 0 | Silêncios: 0 | Média: 0.0s</div>
+
+  <div class="controles-grupo">
+    <div class="controle-item">
+      <label for="select-voz">Voz:</label>
+      <select id="select-voz"><option value="">Carregando vozes...</option></select>
+    </div>
+    <button id="btn-testar-voz" class="btn-secundario">TESTAR VOZ</button>
+  </div>
+
+  <details>
+    <summary>⚙️ Ajustes & Opções</summary>
+    <div class="controles-grupo" style="margin-top: 8px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <label for="input-key" style="font-size: 12px; color: #aaa;">Chave da API do Google Gemini:</label>
+        <input type="password" id="input-key" placeholder="Cole sua chave AIzaSy... aqui">
+      </div>
+      <div class="controle-item">
+        <label for="select-comparacao">Comparação:</label>
+        <select id="select-comparacao">
+          <option value="500">0.5s</option>
+          <option value="1000" selected>1.0s</option>
+          <option value="2000">2.0s</option>
+        </select>
+      </div>
+      <div class="controle-item">
+        <label for="select-sensibilidade">Sensibilidade:</label>
+        <select id="select-sensibilidade">
+          <option value="8">8% (Muito sensível)</option>
+          <option value="15" selected>15% (Padrão)</option>
+          <option value="25">25% (Pouco sensível)</option>
+          <option value="35">35% (Rígido)</option>
+        </select>
+      </div>
+      <div class="controle-item">
+        <label for="select-seguranca">Envio Segurança:</label>
+        <select id="select-seguranca">
+          <option value="10000">10s</option>
+          <option value="15000" selected>15s</option>
+          <option value="30000">30s</option>
+        </select>
+      </div>
+      <button id="btn-testar-ciclo" class="btn-secundario">TESTAR 1 CICLO</button>
+      <button id="btn-retry-camera" class="btn-secundario">📷 TENTAR CÂMERA DE NOVO</button>
+    </div>
+  </details>
+
+  <div id="diagnostico"></div>
+  <button id="btn-copiar-diag" class="btn-secundario">📋 COPIAR DIAGNÓSTICO</button>
+
+  <canvas id="canvas-capture"></canvas>
+  <canvas id="canvas-thumb" width="32" height="24"></canvas>
+
+  <script>
+    const MODEL_NAME = "gemini-flash-latest";
+    const appState = {
+      narrando: false, isProcessingFrame: false, isSpeakingInternal: false,
+      lastTalkTime: Date.now(), lastSentTime: 0, lastConsecutiveDiff: 0, darkStartTime: 0, darkWarned: false,
+      abortController: null, currentStream: null, wakeLock: null,
+      selectedVoice: null, chosenPitch: 1.0, isMasculineVoice: false,
+      lastSentGrayThumb: null, responseTimes: []
+    };
+    const stats = { comparadas: 0, enviadas: 0, porMudanca: 0, porSeguranca: 0, falas: 0, alertas: 0, silencios: 0, erros: 0 };
+
+    const video = document.getElementById("webcam");
+    const btnNarrar = document.getElementById("btn-narrar");
+    const btnIdentificar = document.getElementById("btn-identificar");
+    const respostaBox = document.getElementById("resposta-box");
+    const placar = document.getElementById("placar");
+    const selectVoz = document.getElementById("select-voz");
+    const btnTestarVoz = document.getElementById("btn-testar-voz");
+    const inputKey = document.getElementById("input-key");
+    const selectComparacao = document.getElementById("select-comparacao");
+    const selectSensibilidade = document.getElementById("select-sensibilidade");
+    const selectSeguranca = document.getElementById("select-seguranca");
+    const btnTestarCiclo = document.getElementById("btn-testar-ciclo");
+    const btnRetryCamera = document.getElementById("btn-retry-camera");
+    const btnCopiarDiag = document.getElementById("btn-copiar-diag");
+    const diagBox = document.getElementById("diagnostico");
+    const canvasCap = document.getElementById("canvas-capture");
+    const canvasThumb = document.getElementById("canvas-thumb");
+
+    function logDiag(msg, isError = false) {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+      const line = `[${timeStr}] ${msg}\n`;
+      if (isError) diagBox.innerHTML += `<span style="color: #FF5252;">${line}</span>`;
+      else diagBox.innerHTML += line;
+      const lines = diagBox.innerHTML.split('\n');
+      if (lines.length > 35) diagBox.innerHTML = lines.slice(lines.length - 35).join('\n');
+      diagBox.scrollTop = diagBox.scrollHeight;
+    }
+
+    window.onerror = (msg, url, line) => logDiag(`ERRO GLOBAL: ${msg} (Linha ${line})`, true);
+    window.onunhandledrejection = (e) => logDiag(`PROMESSA REJEITADA: ${e.reason}`, true);
+
+    // A chave digitada no campo tem prioridade; ela é salva a cada alteração
+    function getApiKey() {
+      const digitada = inputKey.value.trim();
+      if (digitada) return digitada;
+      try { return localStorage.getItem("gemini_api_key") || ""; } catch(e) { return ""; }
+    }
+
+    function salvarChave() {
+      try { localStorage.setItem("gemini_api_key", inputKey.value.trim()); } catch(e){}
+    }
+    inputKey.addEventListener("input", salvarChave);
+    inputKey.addEventListener("change", () => { salvarChave(); logDiag("Chave da API salva nos Ajustes."); });
+
+    try { const savedKey = localStorage.getItem("gemini_api_key"); if(savedKey) inputKey.value = savedKey; } catch(e){}
+
+    function speak(text, onEndCallback = null) {
+      if (!("speechSynthesis" in window)) { logDiag("Navegador não suporta voz"); return; }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "pt-BR"; utterance.rate = 1.0;
+      utterance.volume = 1.0; utterance.pitch = appState.chosenPitch;
+      if (appState.selectedVoice) utterance.voice = appState.selectedVoice;
+
+      utterance.onstart = () => { appState.isSpeakingInternal = true; logDiag(`Falando: "${text.substring(0, 40)}..."`); };
+      utterance.onend = () => { appState.isSpeakingInternal = false; logDiag("Fala concluída"); if (onEndCallback) onEndCallback(); };
+      utterance.onerror = (e) => { appState.isSpeakingInternal = false; logDiag(`Erro na fala: ${e.error}`, true); if (onEndCallback) onEndCallback(); };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function loadVoices() {
+      if (!("speechSynthesis" in window)) return;
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices || voices.length === 0) return;
+      const ptVoices = voices.filter(v => v.lang.includes("pt") || v.lang.includes("PT"));
+      logDiag(`Vozes disponíveis: ${voices.length} no total, ${ptVoices.length} em PT`);
+      selectVoz.innerHTML = "";
+      const sortedVoices = [...voices].sort((a,b) => (b.lang.includes("pt")?1:0) - (a.lang.includes("pt")?1:0));
+
+      sortedVoices.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.name; opt.textContent = `${v.name} (${v.lang})`;
+        selectVoz.appendChild(opt);
+      });
+
+      let chosen = null, mode = "";
+      try { const saved = localStorage.getItem("voz_selecionada"); if (saved) { chosen = voices.find(v => v.name === saved); if (chosen) mode = "manual"; } } catch(e){}
+      if (!chosen) {
+        const maleNames = ["daniel", "antonio", "felipe", "fabio", "humberto", "julio", "donato", "male", "masculino"];
+        chosen = ptVoices.find(v => maleNames.some(m => v.name.toLowerCase().includes(m)));
+        if (chosen) mode = "masculina automática";
+      }
+      if (!chosen && ptVoices.length > 0) { chosen = ptVoices[0]; mode = "português com tom grave"; }
+      if (!chosen) { chosen = voices[0]; mode = "padrão do sistema"; }
+
+      appState.selectedVoice = chosen;
+      appState.isMasculineVoice = (mode === "manual" || mode === "masculina automática");
+      appState.chosenPitch = appState.isMasculineVoice ? 1.0 : 0.8;
+      if (chosen) selectVoz.value = chosen.name;
+      logDiag(`Voz escolhida: ${chosen?chosen.name:'Nenhuma'} (${chosen?chosen.lang:''}), pitch ${appState.chosenPitch}, modo [${mode}]`);
+    }
+
+    if ("speechSynthesis" in window) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    selectVoz.addEventListener("change", () => {
+      const voices = window.speechSynthesis.getVoices();
+      const selected = voices.find(v => v.name === selectVoz.value);
+      if (selected) {
+        appState.selectedVoice = selected;
+        appState.chosenPitch = 1.0;
+        try { localStorage.setItem("voz_selecionada", selected.name); } catch(e){}
+        logDiag(`Voz alterada manualmente: ${selected.name}`);
+      }
+    });
+
+    btnTestarVoz.addEventListener("click", () => speak("Olá, eu sou o Assistente de Visão. Esta é a minha voz."));
+
+    async function initCamera() {
+      logDiag(`Contexto seguro: [${window.isSecureContext}]`);
+      logDiag(`getUserMedia disponível: [${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}]`);
+      logDiag(`Dentro de iframe: [${window.self !== window.top}]`);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        respostaBox.textContent = "Este navegador não permite câmera aqui. Abra o link direto no Chrome ou no Safari.";
+        logDiag("Câmera indisponível: getUserMedia ausente", true);
+        return;
+      }
+
+      const configs = [
+        { name: "Attempt A (Ideal HD)", constraints: { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false } },
+        { name: "Attempt B (FacingMode)", constraints: { video: { facingMode: { ideal: "environment" } }, audio: false } },
+        { name: "Attempt C (Default Video)", constraints: { video: true, audio: false } }
+      ];
+
+      for (const config of configs) {
+        try {
+          logDiag(`Tentando câmera: ${config.name}...`);
+          const stream = await navigator.mediaDevices.getUserMedia(config.constraints);
+          video.srcObject = stream;
+          appState.currentStream = stream;
+          await new Promise(r => video.onloadedmetadata = r);
+          logDiag(`Câmera aberta via [${config.name}]: ${video.videoWidth}x${video.videoHeight}`);
+          return;
+        } catch (err) {
+          logDiag(`Falha na ${config.name}: ${err.name} - ${err.message}`);
+        }
+      }
+
+      respostaBox.textContent = "Erro ao acessar a câmera. Verifique as permissões do seu navegador.";
+    }
+
+    btnRetryCamera.addEventListener("click", initCamera);
+
+    // CORREÇÃO 2: no celular, a câmera muitas vezes só abre depois de um toque.
+    // Antes de identificar ou narrar, se a câmera não estiver ativa, abrimos agora
+    // (o toque no botão serve de permissão).
+    function cameraAtiva() {
+      const t = appState.currentStream && appState.currentStream.getVideoTracks()[0];
+      return !!(t && t.readyState === "live" && video.videoWidth > 0);
+    }
+    async function garantirCamera() {
+      if (cameraAtiva()) return true;
+      logDiag("Câmera não estava ativa; abrindo agora pelo toque.");
+      await initCamera();
+      try { await video.play(); } catch (e) {}
+      return cameraAtiva();
+    }
+
+    function captureImage(maxDim = 768, quality = 0.8) {
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      canvasCap.width = w * scale;
+      canvasCap.height = h * scale;
+      const ctx = canvasCap.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvasCap.width, canvasCap.height);
+      const dataUrl = canvasCap.toDataURL("image/jpeg", quality);
+      const base64 = dataUrl.split(",")[1];
+      const sizeKB = Math.round((base64.length * 3 / 4) / 1024);
+      return { base64, sizeKB };
+    }
+
+    function captureGrayscaleThumb() {
+      const ctx = canvasThumb.getContext("2d");
+      ctx.drawImage(video, 0, 0, 32, 24);
+      const imgData = ctx.getImageData(0, 0, 32, 24);
+      const data = imgData.data;
+      const gray = new Uint8Array(32 * 24);
+      let sumLum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const lum = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+        gray[i / 4] = lum;
+        sumLum += lum;
+      }
+      return { gray, avgLum: sumLum / (32 * 24) };
+    }
+
+    function computeDiffPercent(thumb1, thumb2) {
+      if (!thumb1 || !thumb2) return 100;
+      let totalDiff = 0;
+      for (let i = 0; i < thumb1.length; i++) {
+        totalDiff += Math.abs(thumb1[i] - thumb2[i]);
+      }
+      return (totalDiff / (thumb1.length * 255)) * 100;
+    }
+
+    // CORREÇÃO 1: os modelos Flash atuais "pensam" antes de responder e esse
+    // raciocínio gastava todo o limite de 150 tokens -> a resposta chegava VAZIA.
+    // Agora: pedimos para não pensar (mais rápido) e damos espaço de sobra.
+    // Se o modelo não aceitar essa opção, o app tenta de novo sem ela.
+    // Se o modelo não existir (erro 404), tenta o próximo da lista.
+    const MODELOS = [MODEL_NAME, "gemini-3-flash-preview", "gemini-2.5-flash"];
+    let modeloAtual = 0;
+    let usarSemPensar = true;
+
+    async function callGeminiApi(promptText, base64Image, signal) {
+      const key = getApiKey();
+      if (!key) {
+        speak("Falta a chave da API. Abra os ajustes.");
+        document.querySelector("details").open = true;
+        inputKey.focus();
+        throw new Error("Chave da API não configurada.");
+      }
+
+      for (let tentativa = 0; tentativa < 4; tentativa++) {
+        const modelo = MODELOS[modeloAtual];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
+        const generationConfig = { temperature: 0.2, maxOutputTokens: 1024 };
+        if (usarSemPensar) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+
+        const payload = {
+          contents: [{
+            parts: [
+              { text: promptText },
+              { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+            ]
+          }],
+          generationConfig
+        };
+
+        const t0 = Date.now();
+        logDiag(`→ Pedido ${tentativa + 1}: modelo ${modelo}, ${usarSemPensar ? "sem raciocínio" : "com raciocínio"}, chave ...${key.slice(-4)}`);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            body: JSON.stringify(payload),
+            signal: signal
+          });
+        } catch (e) {
+          const seg = ((Date.now() - t0) / 1000).toFixed(1);
+          if (e.name === "AbortError") throw e;
+          throw new Error(`Falha de conexão após ${seg}s (${e.message}). A requisição não chegou ao Google ou não voltou: verifique a internet ou troque Wi-Fi/dados móveis.`);
+        }
+        logDiag(`← Servidor respondeu em ${((Date.now() - t0) / 1000).toFixed(1)}s com status ${response.status}`);
+
+        if (!response.ok) {
+          const errText = await response.text();
+          // Modelo não aceita "não pensar": tenta de novo sem essa opção
+          if (response.status === 400 && usarSemPensar && /thinking/i.test(errText)) {
+            usarSemPensar = false;
+            logDiag(`Modelo ${modelo} não aceita desligar o raciocínio; tentando sem essa opção.`);
+            continue;
+          }
+          // Modelo não encontrado: tenta o próximo da lista
+          if (response.status === 404 && modeloAtual < MODELOS.length - 1) {
+            modeloAtual++;
+            logDiag(`Modelo ${modelo} não encontrado; trocando para ${MODELOS[modeloAtual]}.`, true);
+            continue;
+          }
+          throw new Error(`HTTP ${response.status}: ${errText.slice(0, 300)}`);
+        }
+
+        const resData = await response.json();
+        const candidato = resData.candidates?.[0];
+        // Junta todas as partes de texto, ignorando as partes de "raciocínio"
+        const texto = (candidato?.content?.parts || [])
+          .filter(p => p.text && !p.thought)
+          .map(p => p.text)
+          .join("\n")
+          .trim();
+
+        if (!texto) {
+          const motivo = candidato?.finishReason || resData.promptFeedback?.blockReason || "desconhecido";
+          throw new Error(`Resposta vazia da IA (motivo: ${motivo}, modelo: ${modelo})`);
+        }
+        return texto;
+      }
+      throw new Error("Não consegui uma resposta válida da IA.");
+    }
+
+    btnIdentificar.addEventListener("click", async () => {
+      if (appState.narrando) return;
+      // Evita duas análises ao mesmo tempo (ex.: TESTAR 1 CICLO + IDENTIFICAR)
+      if (appState.isProcessingFrame) { logDiag("Aguarde: já existe uma análise em andamento."); return; }
+      appState.isProcessingFrame = true;
+      // Tempo limite de 20 s para o IDENTIFICAR (antes ficava esperando sem fim)
+      const controleIdentificar = new AbortController();
+      const limiteIdentificar = setTimeout(() => controleIdentificar.abort(), 20000);
+      speak("Analisando");
+      btnIdentificar.disabled = true;
+      btnIdentificar.textContent = "ANALISANDO...";
+      const startTime = Date.now();
+
+      try {
+        if (!(await garantirCamera())) throw new Error("A câmera não está ativa.");
+        const { base64, sizeKB } = captureImage(768, 0.8);
+        logDiag(`Foto capturada: ${sizeKB} KB`);
+        logDiag("Enviando para a IA...");
+
+        const prompt = "Você ajuda uma pessoa cega. Diga, em português do Brasil e em no máximo 2 frases curtas, quais são os objetos principais que aparecem à frente e onde estão (à frente, à esquerda, à direita). Comece pelo objeto mais próximo. Não use as palavras imagem ou foto.";
+        const rawText = await callGeminiApi(prompt, base64, controleIdentificar.signal);
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+
+        logDiag(`Resposta recebida em ${elapsedSec}s: ${rawText}`);
+        respostaBox.textContent = rawText;
+        speak(rawText);
+      } catch (err) {
+        const msg = err.name === "AbortError" ? "Tempo esgotado (20s): a IA não respondeu." : err.message;
+        logDiag(`Erro na IA: ${msg}`, true);
+        respostaBox.textContent = "Não consegui identificar. Tente de novo.";
+        speak("Não consegui identificar. Tente de novo.");
+      } finally {
+        clearTimeout(limiteIdentificar);
+        appState.isProcessingFrame = false;
+        btnIdentificar.disabled = false;
+        btnIdentificar.textContent = "IDENTIFICAR OBJETO";
+      }
+    });
+
+    let currentHistory = [];
+
+    // CORREÇÃO 3: procura a linha certa em qualquer posição da resposta
+    // (ignorando textos como "Here is...", asteriscos e crases). Se nenhuma
+    // linha seguir o formato, o app fica em silêncio em vez de falar lixo.
+    function parseTextResponse(raw) {
+      const linhas = String(raw).split(/\r?\n/)
+        .map(l => l.replace(/^[\s`*"'>\-]+|[\s`*"']+$/g, ""))
+        .filter(Boolean);
+      for (const l of linhas) {
+        const n = l.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+        if (n.startsWith("SILENCIO")) return { falar: false, prioridade: "info", texto: "" };
+        const m = l.match(/^(alerta|info)\s*[:\-–]\s*(.+)$/i);
+        if (m) return { falar: true, prioridade: m[1].toLowerCase(), texto: m[2].trim() };
+      }
+      logDiag(`Formato inesperado: "${String(raw).slice(0, 80)}"`, true);
+      return { falar: false, prioridade: "info", texto: "" };
+    }
+
+    function updatePlacar() {
+      const econ = stats.comparadas > 0 ? Math.round((1 - (stats.enviadas / stats.comparadas)) * 100) : 0;
+      const avgTime = appState.responseTimes.length > 0
+        ? (appState.responseTimes.reduce((a,b)=>a+b,0) / appState.responseTimes.length).toFixed(1) : "0.0";
+      placar.textContent = `Comparadas: ${stats.comparadas} | Enviadas: ${stats.enviadas} | Economia: ${econ}% | Falas: ${stats.falas} | Silêncios: ${stats.silencios} | Média: ${avgTime}s`;
+    }
+
+    async function executeCycle(reason) {
+      if (appState.isProcessingFrame) return;
+      appState.isProcessingFrame = true;
+
+      const captureTime = Date.now();
+      appState.abortController = new AbortController();
+      // 12 s de limite (8 s era pouco para a primeira conexão no celular)
+      const timeoutId = setTimeout(() => appState.abortController.abort(), 12000);
+
+      try {
+        const { base64, sizeKB } = captureImage(768, 0.8);
+        stats.enviadas++;
+        if (reason.startsWith("mudança")) stats.porMudanca++;
+        else if (reason === "segurança") stats.porSeguranca++;
+        updatePlacar();
+
+        logDiag(`Enviada por [${reason}]: ${sizeKB} KB`);
+
+        const silenceTimeSec = (captureTime - appState.lastTalkTime) / 1000;
+        const pedirResumo = silenceTimeSec >= 45
+          ? "A pessoa está há um tempo sem ouvir nada: responda INFO com um resumo de no máximo 10 palavras do ambiente." : "";
+        const ultimasFalasText = currentHistory.length > 0 ? currentHistory.join(" | ") : "nada ainda";
+
+        const prompt = `Você é o assistente de visão de uma pessoa cega que está andando. A foto foi tirada agora por um celular preso ao peito dela, apontando para frente.
+O que você já falou recentemente (do mais antigo para o mais novo): ${ultimasFalasText}
+Decida se precisa falar algo AGORA e responda com UMA ÚNICA LINHA, em português do Brasil, sem nenhum outro texto antes ou depois, em um destes formatos:
+SILENCIO
+ALERTA: frase curta
+INFO: frase curta
+- Use ALERTA para riscos imediatos no caminho: degrau, escada, buraco, desnível, meio-fio, obstáculo na altura do corpo ou da cabeça, veículo, bicicleta, porta de vidro, pessoa muito perto. Diga o que é, a posição (à frente, à esquerda, à direita) e a distância aproximada em passos. Exemplo: ALERTA: degrau à frente, a dois passos.
+- Use INFO para mudanças úteis de ambiente ou orientação: entrada, porta, corredor, faixa de pedestre, semáforo e sua cor, esquina, objeto novo relevante. Exemplo: INFO: porta aberta à direita.
+- Responda SILENCIO se a cena for essencialmente a mesma do que já foi falado e não houver risco novo, ou se a câmera estiver tapada, muito escura ou tremida.
+- ${pedirResumo}
+Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. Não invente riscos. Não repita o que já foi falado, a não ser que um risco tenha ficado mais perto.`;
+
+        const rawResponse = await callGeminiApi(prompt, base64, appState.abortController.signal);
+        clearTimeout(timeoutId);
+
+        const responseSec = (Date.now() - captureTime) / 1000;
+        appState.responseTimes.push(responseSec);
+        if (appState.responseTimes.length > 20) appState.responseTimes.shift();
+
+        const decision = parseTextResponse(rawResponse);
+        logDiag(`Resposta em ${responseSec.toFixed(1)}s: falar=${decision.falar}, prioridade=${decision.prioridade}, texto="${decision.texto}"`);
+
+        if (!decision.falar) {
+          stats.silencios++;
+          updatePlacar();
+          return;
+        }
+
+        const elapsedSinceCap = (Date.now() - captureTime) / 1000;
+
+        if (decision.prioridade === "info") {
+          if (elapsedSinceCap > 8.0) { logDiag(`Descartada: info atrasada (${elapsedSinceCap.toFixed(1)}s)`); return; }
+          if (appState.isSpeakingInternal) { logDiag("Descartada: já estava falando"); return; }
+        }
+
+        let phraseToSpeak = decision.texto;
+        if (decision.prioridade === "alerta") {
+          if (elapsedSinceCap > 4.0) phraseToSpeak = `Atenção, informação atrasada: ${phraseToSpeak}`;
+          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        }
+
+        respostaBox.textContent = phraseToSpeak;
+        currentHistory.push(phraseToSpeak);
+        if (currentHistory.length > 3) currentHistory.shift();
+
+        appState.lastTalkTime = Date.now();
+        stats.falas++;
+        if (decision.prioridade === "alerta") stats.alertas++;
+        updatePlacar();
+
+        speak(phraseToSpeak);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === "AbortError") {
+          logDiag("Tempo esgotado (12s)", true);
+        } else {
+          stats.erros++;
+          logDiag(`Erro no ciclo: ${err.message}`, true);
+        }
+        updatePlacar();
+      } finally {
+        appState.isProcessingFrame = false;
+        appState.lastSentTime = Date.now();
+      }
+    }
+
+    let comparisonLoopTimer = null;
+
+    function runComparisonLoop() {
+      if (!appState.narrando) return;
+
+      stats.comparadas++;
+      const { gray, avgLum } = captureGrayscaleThumb();
+
+      if (avgLum < 20) {
+        if (appState.darkStartTime === 0) appState.darkStartTime = Date.now();
+        const darkDuration = (Date.now() - appState.darkStartTime) / 1000;
+        logDiag(`Imagem escura (${avgLum.toFixed(1)}/255) há ${darkDuration.toFixed(1)}s`);
+        if (darkDuration >= 10 && !appState.darkWarned) {
+          speak("Câmera tapada ou ambiente muito escuro.");
+          appState.darkWarned = true;
+        }
+      } else {
+        appState.darkStartTime = 0;
+        appState.darkWarned = false;
+      }
+
+      const sensivity = parseFloat(selectSensibilidade.value);
+      const diffPercent = computeDiffPercent(gray, appState.lastSentGrayThumb);
+      const timeSinceLastSent = Date.now() - appState.lastSentTime;
+      const minInterval = 3000;
+      const safetyTime = parseFloat(selectSeguranca.value);
+
+      let shouldSend = false;
+      let reason = "";
+
+      if (timeSinceLastSent >= minInterval && !appState.isProcessingFrame) {
+        if (!appState.lastSentGrayThumb) {
+          shouldSend = true; reason = "início";
+        } else if (diffPercent > sensivity) {
+          if (appState.lastConsecutiveDiff > sensivity) {
+            shouldSend = true; reason = `mudança ${diffPercent.toFixed(1)}%`;
+          }
+        } else if (timeSinceLastSent >= safetyTime) {
+          shouldSend = true; reason = "segurança";
+        }
+      }
+
+      appState.lastConsecutiveDiff = diffPercent;
+      updatePlacar();
+
+      if (shouldSend) {
+        appState.lastSentGrayThumb = gray;
+        executeCycle(reason);
+      }
+
+      const compInterval = parseInt(selectComparacao.value, 10);
+      comparisonLoopTimer = setTimeout(runComparisonLoop, compInterval);
+    }
+
+    btnNarrar.addEventListener("click", async () => {
+      if (!appState.narrando) {
+        speak("Narração iniciada");
+        if (!(await garantirCamera())) {
+          speak("Não consegui abrir a câmera. Verifique a permissão do navegador.");
+          return;
+        }
+        appState.narrando = true;
+        btnNarrar.textContent = "PAUSAR NARRAÇÃO";
+        btnNarrar.classList.add("pausar");
+        btnIdentificar.disabled = true;
+
+        try {
+          if ("wakeLock" in navigator) appState.wakeLock = await navigator.wakeLock.request("screen");
+          logDiag("Wake Lock: ativa");
+        } catch(e) { logDiag("Wake Lock: erro/não suportada"); }
+
+        appState.lastSentGrayThumb = null;
+        appState.lastSentTime = 0;
+        runComparisonLoop();
+      } else {
+        pausarNarracao("Narração pausada");
+      }
+    });
+
+    function pausarNarracao(msgVoz) {
+      if (msgVoz) speak(msgVoz);
+      appState.narrando = false;
+      btnNarrar.textContent = "INICIAR NARRAÇÃO";
+      btnNarrar.classList.remove("pausar");
+      btnIdentificar.disabled = false;
+      if (comparisonLoopTimer) clearTimeout(comparisonLoopTimer);
+      if (appState.abortController) appState.abortController.abort();
+      if (appState.wakeLock) { appState.wakeLock.release().catch(()=>{}); appState.wakeLock = null; }
+      logDiag("Narração pausada");
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && appState.narrando) {
+        pausarNarracao("Narração pausada. Toque em iniciar para continuar.");
+      }
+    });
+
+    btnTestarCiclo.addEventListener("click", () => {
+      logDiag("--- INICIANDO 1 CICLO DE TESTE ---");
+      executeCycle("teste manual");
+    });
+
+    btnCopiarDiag.addEventListener("click", () => {
+      const text = diagBox.innerText;
+      navigator.clipboard.writeText(text).then(() => alert("Diagnóstico copiado!")).catch(() => alert("Falha ao copiar."));
+    });
+
+    initCamera();
+  </script>
+</body>
+</html>
