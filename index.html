@@ -394,8 +394,8 @@
 
       const captureTime = Date.now();
       appState.abortController = new AbortController();
-      // 12 s de limite (8 s era pouco para a primeira conexão no celular)
-      const timeoutId = setTimeout(() => appState.abortController.abort(), 12000);
+      // 20 s de limite: o servidor pode tentar outros modelos se um estiver ocupado
+      const timeoutId = setTimeout(() => appState.abortController.abort(), 20000);
 
       try {
         const { base64, sizeKB } = captureImage(768, 0.8);
@@ -465,7 +465,7 @@ Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. N�
       } catch (err) {
         clearTimeout(timeoutId);
         if (err.name === "AbortError") {
-          logDiag("Tempo esgotado (12s)", true);
+          logDiag("Tempo esgotado (20s)", true);
         } else {
           stats.erros++;
           logDiag(`Erro no ciclo: ${err.message}`, true);
