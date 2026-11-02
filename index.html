@@ -50,10 +50,7 @@
   <details>
     <summary>⚙️ Ajustes & Opções</summary>
     <div class="controles-grupo" style="margin-top: 8px;">
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <label for="input-key" style="font-size: 12px; color: #aaa;">Chave da API do Google Gemini:</label>
-        <input type="password" id="input-key" placeholder="Cole sua chave AIzaSy... aqui">
-      </div>
+      <p style="font-size: 12px; color: #aaa;">A chave da IA fica guardada no servidor (Vercel). Não é preciso colar nada aqui.</p>
       <div class="controle-item">
         <label for="select-comparacao">Comparação:</label>
         <select id="select-comparacao">
@@ -91,7 +88,7 @@
   <canvas id="canvas-thumb" width="32" height="24"></canvas>
 
   <script>
-    const MODEL_NAME = "gemini-flash-latest";
+    // O modelo de IA é escolhido no servidor (api/analisar.js)
     const appState = {
       narrando: false, isProcessingFrame: false, isSpeakingInternal: false,
       lastTalkTime: Date.now(), lastSentTime: 0, lastConsecutiveDiff: 0, darkStartTime: 0, darkWarned: false,
@@ -108,8 +105,7 @@
     const placar = document.getElementById("placar");
     const selectVoz = document.getElementById("select-voz");
     const btnTestarVoz = document.getElementById("btn-testar-voz");
-    const inputKey = document.getElementById("input-key");
-    const selectComparacao = document.getElementById("select-comparacao");
+        const selectComparacao = document.getElementById("select-comparacao");
     const selectSensibilidade = document.getElementById("select-sensibilidade");
     const selectSeguranca = document.getElementById("select-seguranca");
     const btnTestarCiclo = document.getElementById("btn-testar-ciclo");
@@ -132,21 +128,6 @@
 
     window.onerror = (msg, url, line) => logDiag(`ERRO GLOBAL: ${msg} (Linha ${line})`, true);
     window.onunhandledrejection = (e) => logDiag(`PROMESSA REJEITADA: ${e.reason}`, true);
-
-    // A chave digitada no campo tem prioridade; ela é salva a cada alteração
-    function getApiKey() {
-      const digitada = inputKey.value.trim();
-      if (digitada) return digitada;
-      try { return localStorage.getItem("gemini_api_key") || ""; } catch(e) { return ""; }
-    }
-
-    function salvarChave() {
-      try { localStorage.setItem("gemini_api_key", inputKey.value.trim()); } catch(e){}
-    }
-    inputKey.addEventListener("input", salvarChave);
-    inputKey.addEventListener("change", () => { salvarChave(); logDiag("Chave da API salva nos Ajustes."); });
-
-    try { const savedKey = localStorage.getItem("gemini_api_key"); if(savedKey) inputKey.value = savedKey; } catch(e){}
 
     function speak(text, onEndCallback = null) {
       if (!("speechSynthesis" in window)) { logDiag("Navegador não suporta voz"); return; }
@@ -302,90 +283,44 @@
       return (totalDiff / (thumb1.length * 255)) * 100;
     }
 
-    // CORREÇÃO 1: os modelos Flash atuais "pensam" antes de responder e esse
-    // raciocínio gastava todo o limite de 150 tokens -> a resposta chegava VAZIA.
-    // Agora: pedimos para não pensar (mais rápido) e damos espaço de sobra.
-    // Se o modelo não aceitar essa opção, o app tenta de novo sem ela.
-    // Se o modelo não existir (erro 404), tenta o próximo da lista.
-    const MODELOS = [MODEL_NAME, "gemini-3-flash-preview", "gemini-2.5-flash"];
-    let modeloAtual = 0;
-    let usarSemPensar = true;
-
+    // A IA agora é chamada pelo PRÓPRIO SITE (/api/analisar), e não direto no Google.
+    // A chave fica guardada no Vercel; o celular nunca a vê. Isso também evita
+    // os bloqueios do Safari ao chamar o Google diretamente.
     async function callGeminiApi(promptText, base64Image, signal) {
-      const key = getApiKey();
-      if (!key) {
-        speak("Falta a chave da API. Abra os ajustes.");
-        document.querySelector("details").open = true;
-        inputKey.focus();
-        throw new Error("Chave da API não configurada.");
+      const t0 = Date.now();
+      logDiag(`→ Pedido ao servidor do app (/api/analisar), foto ${Math.round(base64Image.length * 0.75 / 1024)} KB`);
+      let response;
+      try {
+        response = await fetch("/api/analisar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: promptText, imagem: base64Image }),
+          signal: signal
+        });
+      } catch (e) {
+        if (e.name === "AbortError") throw e;
+        const seg = ((Date.now() - t0) / 1000).toFixed(1);
+        throw new Error(`Falha de conexão com o servidor do app após ${seg}s (${e.message}). Verifique a internet.`);
       }
-
-      for (let tentativa = 0; tentativa < 4; tentativa++) {
-        const modelo = MODELOS[modeloAtual];
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`;
-        const generationConfig = { temperature: 0.2, maxOutputTokens: 1024 };
-        if (usarSemPensar) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-
-        const payload = {
-          contents: [{
-            parts: [
-              { text: promptText },
-              { inline_data: { mime_type: "image/jpeg", data: base64Image } }
-            ]
-          }],
-          generationConfig
-        };
-
-        const t0 = Date.now();
-        logDiag(`→ Pedido ${tentativa + 1}: modelo ${modelo}, ${usarSemPensar ? "sem raciocínio" : "com raciocínio"}, chave ...${key.slice(-4)}`);
-        let response;
-        try {
-          response = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-            body: JSON.stringify(payload),
-            signal: signal
-          });
-        } catch (e) {
-          const seg = ((Date.now() - t0) / 1000).toFixed(1);
-          if (e.name === "AbortError") throw e;
-          throw new Error(`Falha de conexão após ${seg}s (${e.message}). A requisição não chegou ao Google ou não voltou: verifique a internet ou troque Wi-Fi/dados móveis.`);
-        }
-        logDiag(`← Servidor respondeu em ${((Date.now() - t0) / 1000).toFixed(1)}s com status ${response.status}`);
-
-        if (!response.ok) {
-          const errText = await response.text();
-          // Modelo não aceita "não pensar": tenta de novo sem essa opção
-          if (response.status === 400 && usarSemPensar && /thinking/i.test(errText)) {
-            usarSemPensar = false;
-            logDiag(`Modelo ${modelo} não aceita desligar o raciocínio; tentando sem essa opção.`);
-            continue;
-          }
-          // Modelo não encontrado: tenta o próximo da lista
-          if (response.status === 404 && modeloAtual < MODELOS.length - 1) {
-            modeloAtual++;
-            logDiag(`Modelo ${modelo} não encontrado; trocando para ${MODELOS[modeloAtual]}.`, true);
-            continue;
-          }
-          throw new Error(`HTTP ${response.status}: ${errText.slice(0, 300)}`);
-        }
-
-        const resData = await response.json();
-        const candidato = resData.candidates?.[0];
-        // Junta todas as partes de texto, ignorando as partes de "raciocínio"
-        const texto = (candidato?.content?.parts || [])
-          .filter(p => p.text && !p.thought)
-          .map(p => p.text)
-          .join("\n")
-          .trim();
-
-        if (!texto) {
-          const motivo = candidato?.finishReason || resData.promptFeedback?.blockReason || "desconhecido";
-          throw new Error(`Resposta vazia da IA (motivo: ${motivo}, modelo: ${modelo})`);
-        }
-        return texto;
+      const dados = await response.json().catch(() => ({}));
+      const seg = ((Date.now() - t0) / 1000).toFixed(1);
+      logDiag(`← Servidor respondeu em ${seg}s com status ${response.status}${dados.modelo ? " (modelo " + dados.modelo + ")" : ""}`);
+      if (!response.ok) {
+        throw new Error(dados.erro || `Erro ${response.status} no servidor do app`);
       }
-      throw new Error("Não consegui uma resposta válida da IA.");
+      return dados.texto;
+    }
+
+    // Ao abrir, confere se o servidor e a chave estão OK
+    async function verificarServidor() {
+      try {
+        const r = await fetch("/api/analisar");
+        const d = await r.json();
+        logDiag(`Servidor: ${d.mensagem}`, !d.chaveConfigurada);
+        if (!d.chaveConfigurada) respostaBox.textContent = "Falta configurar a chave no Vercel (GEMINI_API_KEY).";
+      } catch (e) {
+        logDiag(`Servidor do app não respondeu (${e.message}). Se estiver testando fora do Vercel, isso é esperado.`, true);
+      }
     }
 
     btnIdentificar.addEventListener("click", async () => {
@@ -649,6 +584,7 @@ Regras: frase de no máximo 12 palavras. Não use as palavras imagem ou foto. N�
       navigator.clipboard.writeText(text).then(() => alert("Diagnóstico copiado!")).catch(() => alert("Falha ao copiar."));
     });
 
+    verificarServidor();
     initCamera();
   </script>
 </body>
