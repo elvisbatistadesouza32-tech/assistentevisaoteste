@@ -11,13 +11,18 @@
 // POST /api/analisar  -> { prompt, imagem } e devolve { texto, modelo, ms }
 // =====================================================================
 
-const MODELOS = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash"];
-const LIMITE_MS = 15000;              // tempo máximo esperando o Google
+// Modelos confirmados na lista da conta. Se um estiver sobrecarregado (503),
+// indisponível (500) ou não existir (404), o servidor tenta o próximo.
+const MODELOS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-3.1-flash-lite"];
+const LIMITE_MS = 8000;               // tempo máximo esperando o Google em cada tentativa
+const ORCAMENTO_TOTAL_MS = 18000;     // tempo máximo somando todas as tentativas
 const TAMANHO_MAX_IMAGEM = 3000000;   // ~2,2 MB em base64 (bem acima dos ~100 KB usados)
 
-// Lembra entre pedidos se o modelo aceita "sem raciocínio" e qual modelo funcionou
+// Lembra entre pedidos se o modelo aceita "sem raciocínio" e qual modelo funcionou.
+// O modelo reserva é usado por 5 minutos; depois o servidor volta a tentar o principal.
 let semRaciocinioGlobal = true;
 let indiceModeloGlobal = 0;
+let modeloReservaDesde = 0;
 
 module.exports = async function handler(req, res) {
   const chave = process.env.GEMINI_API_KEY;
@@ -57,9 +62,12 @@ module.exports = async function handler(req, res) {
   // ---- Chama o Gemini (com tentativas automáticas) ----
   const inicio = Date.now();
   let semRaciocinio = semRaciocinioGlobal;
+  if (indiceModeloGlobal !== 0 && Date.now() - modeloReservaDesde > 5 * 60 * 1000) indiceModeloGlobal = 0;
   let indiceModelo = indiceModeloGlobal;
+  const tentados = [];
 
-  for (let tentativa = 0; tentativa < 4; tentativa++) {
+  for (let tentativa = 0; tentativa < MODELOS.length * 2; tentativa++) {
+    if (Date.now() - inicio > ORCAMENTO_TOTAL_MS) break;
     const modelo = MODELOS[indiceModelo];
     const generationConfig = { temperature: 0.2, maxOutputTokens: 1024 };
     if (semRaciocinio) generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -87,8 +95,10 @@ module.exports = async function handler(req, res) {
       dados = await resposta.json().catch(() => ({}));
     } catch (e) {
       clearTimeout(relogio);
-      const motivo = e.name === "AbortError" ? `o Google não respondeu em ${LIMITE_MS / 1000}s` : e.message;
-      return res.status(504).json({ erro: `Falha ao falar com o Google: ${motivo}` });
+      const motivo = e.name === "AbortError" ? `sem resposta em ${LIMITE_MS / 1000}s` : e.message;
+      tentados.push(`${modelo}: ${motivo}`);
+      if (indiceModelo < MODELOS.length - 1) { indiceModelo++; continue; }
+      return res.status(504).json({ erro: `Falha ao falar com o Google (${tentados.join("; ")})` });
     }
     clearTimeout(relogio);
 
@@ -97,8 +107,14 @@ module.exports = async function handler(req, res) {
       // Modelo não aceita desligar o raciocínio: tenta sem essa opção
       if (resposta.status === 400 && semRaciocinio && /thinking/i.test(msg)) { semRaciocinio = false; continue; }
       // Modelo não encontrado: tenta o próximo da lista
-      if (resposta.status === 404 && indiceModelo < MODELOS.length - 1) { indiceModelo++; continue; }
-      return res.status(resposta.status).json({ erro: `Google respondeu ${resposta.status}: ${msg}`, modelo });
+      // Modelo inexistente (404), sobrecarregado (503) ou com falha (500): tenta o próximo
+      if ([404, 500, 503].includes(resposta.status) && indiceModelo < MODELOS.length - 1) {
+        tentados.push(`${modelo}: ${resposta.status}`);
+        indiceModelo++;
+        continue;
+      }
+      tentados.push(`${modelo}: ${resposta.status}`);
+      return res.status(resposta.status).json({ erro: `Google respondeu ${resposta.status}: ${msg}`, modelo, tentados });
     }
 
     const candidato = dados.candidates && dados.candidates[0];
@@ -110,9 +126,9 @@ module.exports = async function handler(req, res) {
     }
 
     semRaciocinioGlobal = semRaciocinio;
-    indiceModeloGlobal = indiceModelo;
-    return res.status(200).json({ texto, modelo, ms: Date.now() - inicio });
+    if (indiceModelo !== indiceModeloGlobal) { indiceModeloGlobal = indiceModelo; modeloReservaDesde = Date.now(); }
+    return res.status(200).json({ texto, modelo, ms: Date.now() - inicio, tentados });
   }
 
-  return res.status(502).json({ erro: "Não consegui uma resposta válida da IA." });
+  return res.status(503).json({ erro: `Todos os modelos estão ocupados agora. Tente de novo em alguns segundos. (${tentados.join("; ")})` });
 };
